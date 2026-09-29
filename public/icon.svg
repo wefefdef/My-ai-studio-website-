@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="none" stroke="#334155" stroke-width="4"/>
+  <!-- App Logo / Trading bars -->
+  <path d="M120 340 L180 270 L240 310 L330 180 L392 230" fill="none" stroke="url(#accent)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="392" cy="230" r="22" fill="#10b981"/>
+  <circle cx="330" cy="180" r="16" fill="#3b82f6"/>
+  <circle cx="240" cy="310" r="14" fill="#3b82f6"/>
+  <circle cx="180" cy="270" r="14" fill="#3b82f6"/>
+  <circle cx="120" cy="340" r="14" fill="#3b82f6"/>
+</svg>

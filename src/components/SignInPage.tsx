@@ -25,6 +25,7 @@ export function SignInPage({
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(registrationSuccessMessage);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (initialEmail) {
@@ -38,7 +39,7 @@ export function SignInPage({
     }
   }, [registrationSuccessMessage]);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSuccessMsg(null);
@@ -48,15 +49,22 @@ export function SignInPage({
       return;
     }
 
-    const result = StorageService.loginUser(email.trim(), password);
+    setIsLoading(true);
+    try {
+      const result = await StorageService.loginUser(email.trim(), password);
 
-    if (!result.success) {
-      setError(result.error || 'Failed to sign in.');
-      return;
-    }
+      if (!result.success) {
+        setError(result.error || 'Failed to sign in.');
+        return;
+      }
 
-    if (result.user) {
-      onLoginSuccess(result.user);
+      if (result.user) {
+        onLoginSuccess(result.user);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to authenticate.');
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -174,8 +182,12 @@ export function SignInPage({
             Forgot password?
           </a>
 
-          <button className="primary-button" type="submit">
-            Sign in <ArrowRight size={20} />
+          <button className="primary-button" type="submit" disabled={isLoading}>
+            {isLoading ? 'Verifying with Database...' : (
+              <>
+                Sign in <ArrowRight size={20} />
+              </>
+            )}
           </button>
         </form>
 

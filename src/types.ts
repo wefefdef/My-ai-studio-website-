@@ -40,6 +40,21 @@ export interface PaymentOption {
   logoText?: string;
 }
 
+export interface PaymentMethod {
+  id: string;
+  title: string;
+  type: 'bank' | 'crypto' | 'custom';
+  bankName?: string;
+  accountNumber?: string;
+  accountOwnerName?: string;
+  walletAddress?: string;
+  network?: string;
+  instructions?: string;
+  enabled: boolean;
+  order: number;
+  updatedAt?: string;
+}
+
 export interface PersonalDetails {
   address: string;
   city: string;
@@ -77,17 +92,25 @@ export interface TradePosition {
   lotSize: number;
   entryPrice: number;
   currentPrice: number;
+  closePrice?: number;
   tp?: string;
   sl?: string;
   pnl: number;
+  finalPnl?: number;
   openTime: string;
+  closeTime?: string;
   duration?: string;
   expiryDate?: string;
   status?: 'active' | 'closed';
+  userId?: string;
+  userEmail?: string;
+  createdAt?: string;
+  closedAt?: string;
 }
 
 export interface UserAccount {
   id: string;
+  uid?: string;
   fullName: string;
   email: string;
   phone: string;

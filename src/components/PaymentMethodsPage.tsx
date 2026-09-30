@@ -9,10 +9,12 @@ import {
   ShieldCheck,
   Info,
   Clock,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';
 import { Footer } from './Footer';
+import { OwnerPaymentSettingsModal } from './OwnerPaymentSettingsModal';
 
 interface PaymentMethodsPageProps {
   onBack: () => void;
@@ -46,30 +48,26 @@ export function PaymentMethodsPage({
   onNotNow,
 }: PaymentMethodsPageProps) {
   const [tab, setTab] = useState<'main' | 'alternative'>('main');
-  const [selectedMethod, setSelectedMethod] = useState<string | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<string | null>('bank-transfer-ng');
   const [skrillWarning, setSkrillWarning] = useState(false);
+  const [showOwnerModal, setShowOwnerModal] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   function handleContinue() {
-    if (!selectedMethod) return;
-    if (selectedMethod === 'skrill') {
+    const method = selectedMethod || 'bank-transfer-ng';
+    if (method === 'skrill') {
       setSkrillWarning(true);
       return;
     }
-    if (selectedMethod === 'visa') {
+    if (method === 'visa') {
       onCardForm();
       return;
     }
-    if (
-      selectedMethod !== 'cryptopay' &&
-      selectedMethod !== 'gpay' &&
-      selectedMethod !== 'applepay'
-    ) {
-      if (selectedMethod === 'bank-transfer-ng' || selectedMethod === 'bank-transfer-e') {
-        onBankTransfer(selectedMethod);
-        return;
-      }
+    if (method === 'bank-transfer-ng' || method === 'bank-transfer-e') {
+      onBankTransfer(method);
+      return;
     }
+    onBankTransfer('bank-transfer-ng');
   }
 
   function handleSelect(key: string) {
@@ -252,7 +250,7 @@ export function PaymentMethodsPage({
           className="primary-button proceed"
           type="button"
           onClick={handleContinue}
-          disabled={!selectedMethod || isComingSoon}
+          disabled={isComingSoon}
         >
           Continue <ArrowRight size={20} />
         </button>
@@ -260,7 +258,38 @@ export function PaymentMethodsPage({
         <button className="not-now-btn" type="button" onClick={onNotNow}>
           <Clock size={18} /> Not Now
         </button>
+
+        {/* Discreet neutral corner icon */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+          <button
+            type="button"
+            onClick={() => setShowOwnerModal(true)}
+            aria-label="Options"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 4,
+              color: 'var(--text3, #9ca3af)',
+              opacity: 0.35,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 4,
+              transition: 'opacity 0.2s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.75')}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.35')}
+          >
+            <SlidersHorizontal size={13} />
+          </button>
+        </div>
       </section>
+
+      <OwnerPaymentSettingsModal
+        isOpen={showOwnerModal}
+        onClose={() => setShowOwnerModal(false)}
+      />
 
       <Footer />
     </main>

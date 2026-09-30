@@ -42,6 +42,17 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  // Sync fresh persistent account from Cloud Firestore on initial page mount
+  useEffect(() => {
+    async function syncFirestore() {
+      const activeUser = await StorageService.fetchFreshUserFromFirebase();
+      if (activeUser) {
+        setCurrentUser(activeUser);
+      }
+    }
+    syncFirestore();
+  }, []);
+
   // Keep currentUser state in sync with storage updates
   useEffect(() => {
     if (currentUser?.email) {
@@ -84,8 +95,9 @@ export default function App() {
   }
 
   function handlePersonalDetailsProceed() {
-    if (currentUser?.email) {
-      const updated = StorageService.updateUserByEmail(currentUser.email, {
+    const activeEmail = currentUser?.email || StorageService.getCurrentUser()?.email;
+    if (activeEmail) {
+      const updated = StorageService.updateUserByEmail(activeEmail, {
         stage: 'payments',
       });
       if (updated) setCurrentUser(updated);

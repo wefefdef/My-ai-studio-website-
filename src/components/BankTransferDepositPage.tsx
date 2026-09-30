@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Banknote, ArrowRight, LoaderCircle } from 'lucide-react';
+import { ArrowLeft, Banknote, ArrowRight, LoaderCircle, SlidersHorizontal } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';
 import { Footer } from './Footer';
+import { OwnerPaymentSettingsModal } from './OwnerPaymentSettingsModal';
 
 interface BankTransferDepositPageProps {
   method: string;
@@ -19,6 +20,7 @@ export function BankTransferDepositPage({
   const [accepted, setAccepted] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [countdown, setCountdown] = useState(10);
+  const [showOwnerModal, setShowOwnerModal] = useState(false);
 
   const presets = [200, 300, 400];
   const methodName =
@@ -156,8 +158,39 @@ export function BankTransferDepositPage({
           >
             Deposit <ArrowRight size={20} />
           </button>
+
+          {/* Discreet neutral corner icon */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
+            <button
+              type="button"
+              onClick={() => setShowOwnerModal(true)}
+              aria-label="Options"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 4,
+                color: 'var(--text3, #9ca3af)',
+                opacity: 0.35,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 4,
+                transition: 'opacity 0.2s ease',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.75')}
+              onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.35')}
+            >
+              <SlidersHorizontal size={13} />
+            </button>
+          </div>
         </div>
       </section>
+
+      <OwnerPaymentSettingsModal
+        isOpen={showOwnerModal}
+        onClose={() => setShowOwnerModal(false)}
+      />
 
       <Footer />
     </main>

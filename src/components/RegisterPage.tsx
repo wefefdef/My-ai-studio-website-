@@ -21,8 +21,9 @@ export function RegisterPage({ onRegistered, onGoToLogin, onBack }: RegisterPage
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
 
@@ -41,21 +42,28 @@ export function RegisterPage({ onRegistered, onGoToLogin, onBack }: RegisterPage
       return;
     }
 
-    const result = StorageService.registerUser({
-      fullName,
-      email,
-      phone,
-      country,
-      password,
-    });
+    setIsLoading(true);
+    try {
+      const result = await StorageService.registerUser({
+        fullName,
+        email,
+        phone,
+        country,
+        password,
+      });
 
-    if (!result.success) {
-      setError(result.error || 'Failed to register account.');
-      return;
+      if (!result.success) {
+        setError(result.error || 'Failed to register account.');
+        return;
+      }
+
+      // Direct to login page with registered email
+      onRegistered(email.trim());
+    } catch (err: any) {
+      setError(err?.message || 'Failed to create account in database.');
+    } finally {
+      setIsLoading(false);
     }
-
-    // Direct to login page with registered email
-    onRegistered(email.trim());
   }
 
   return (
@@ -196,8 +204,12 @@ export function RegisterPage({ onRegistered, onGoToLogin, onBack }: RegisterPage
             </button>
           </div>
 
-          <button className="primary-button" type="submit" style={{ marginTop: 8 }}>
-            Create Account &amp; Continue <ArrowRight size={20} />
+          <button className="primary-button" type="submit" disabled={isLoading} style={{ marginTop: 8 }}>
+            {isLoading ? 'Creating Account in Database...' : (
+              <>
+                Create Account &amp; Continue <ArrowRight size={20} />
+              </>
+            )}
           </button>
         </form>
 

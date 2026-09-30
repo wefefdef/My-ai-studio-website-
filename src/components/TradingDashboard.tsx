@@ -17,7 +17,21 @@ import {
   BarChart2,
   FileText,
   Activity,
+  Trash2,
+  History,
+  RefreshCw,
 } from 'lucide-react';
+import {
+  collection,
+  doc,
+  setDoc,
+  getDocs,
+  query,
+  where,
+  updateDoc,
+  deleteDoc,
+} from 'firebase/firestore';
+import { db } from '../services/firebase';
 import { MarketAsset, UserAccount, TradePosition } from '../types';
 import { MARKET_CATEGORIES, MARKET_ASSETS, OTC_ASSETS, NEWS_HEADLINES } from '../data/markets';
 import { BrandMark } from './BrandMark';
@@ -57,6 +71,11 @@ export function TradingDashboard({
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [tradeNotification, setTradeNotification] = useState<string | null>(null);
 
+  // Firestore Trade History & Sub-Tab state
+  const [tradeHistory, setTradeHistory] = useState<TradePosition[]>([]);
+  const [tradesSubTab, setTradesSubTab] = useState<'open' | 'history'>('open');
+  const [isLoadingTrades, setIsLoadingTrades] = useState(false);
+
   // Account mode: default to live if verified/deposited
   const [accountMode, setAccountMode] = useState<'live' | 'demo'>(
     currentUser?.accountType || (currentUser?.isLiveAccount ? 'live' : 'demo')
@@ -68,6 +87,58 @@ export function TradingDashboard({
       : (currentUser?.demoEquity ?? 10000);
 
   const positions = currentUser?.positions || [];
+
+  // READ Operation: Fetch user's trade history and open positions from Firestore 'trades' collection on login/mount
+  async function fetchUserTrades() {
+    if (!currentUser?.email) return;
+    setIsLoadingTrades(true);
+    try {
+      const tradesRef = collection(db, 'trades');
+      const q = query(tradesRef, where('userEmail', '==', currentUser.email));
+      const snapshot = await getDocs(q);
+      const activeTrades: TradePosition[] = [];
+      const historyTrades: TradePosition[] = [];
+
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as TradePosition;
+        if (data.status === 'closed') {
+          historyTrades.push({ ...data, id: docSnap.id });
+        } else {
+          activeTrades.push({ ...data, id: docSnap.id });
+        }
+      });
+
+      // Sort history by creation / close date descending
+      historyTrades.sort((a, b) => {
+        const tA = a.closedAt || a.createdAt || '';
+        const tB = b.closedAt || b.createdAt || '';
+        return tB.localeCompare(tA);
+      });
+
+      setTradeHistory(historyTrades);
+
+      // Sync active trades into currentUser state if needed
+      if (activeTrades.length > 0 && onUserUpdated) {
+        const currentIds = new Set(positions.map((p) => p.id));
+        const outOfSync =
+          activeTrades.length !== positions.length ||
+          activeTrades.some((t) => !currentIds.has(t.id));
+
+        if (outOfSync) {
+          const updated = StorageService.updatePositions(currentUser.email, activeTrades);
+          if (updated) onUserUpdated(updated);
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching trades from Firestore trades collection:', err);
+    } finally {
+      setIsLoadingTrades(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchUserTrades();
+  }, [currentUser?.email]);
 
   // Contract sizing for authentic financial market PnL calculation
   const getContractMultiplier = (symbol: string): number => {
@@ -241,7 +312,8 @@ export function TradingDashboard({
     });
   }
 
-  function handleExecuteTrade(side: 'buy' | 'sell') {
+  // CREATE Operation: Save new trade directly to Firestore 'trades' collection and storage
+  async function handleExecuteTrade(side: 'buy' | 'sell') {
     const parsedLot = parseFloat(lotSize) || 0.1;
     const now = new Date();
     const expiry = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -271,9 +343,23 @@ export function TradingDashboard({
         ' ' +
         expiry.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       status: 'active',
+      createdAt: now.toISOString(),
+      userEmail: currentUser?.email,
+      userId: currentUser?.uid || currentUser?.id,
     };
 
+    // Save directly to Firestore 'trades' collection
     if (currentUser?.email) {
+      try {
+        const tradeRef = doc(db, 'trades', newPosition.id);
+        await setDoc(tradeRef, {
+          ...newPosition,
+          accountType: currentUser.accountType || accountMode,
+        });
+      } catch (err) {
+        console.error('Firestore save trade error:', err);
+      }
+
       const updated = StorageService.addPosition(currentUser.email, newPosition);
       if (updated && onUserUpdated) onUserUpdated(updated);
     }
@@ -285,12 +371,56 @@ export function TradingDashboard({
     }, 3500);
   }
 
-  function handleClosePosition(posId: string) {
-    if (currentUser?.email) {
-      const updated = StorageService.closePosition(currentUser.email, posId);
-      if (updated && onUserUpdated) onUserUpdated(updated);
-      setTradeNotification('Position closed at market price and settled to balance.');
+  // UPDATE Operation: Update trade in Firestore 'trades' collection to 'closed'
+  async function handleClosePosition(posId: string) {
+    if (!currentUser?.email) return;
+
+    const posToClose = positions.find((p) => p.id === posId);
+    const now = new Date();
+    const closeTimeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    // Update in Firestore 'trades' collection
+    try {
+      const tradeRef = doc(db, 'trades', posId);
+      await updateDoc(tradeRef, {
+        status: 'closed',
+        closeTime: closeTimeStr,
+        closedAt: now.toISOString(),
+        closePrice: posToClose?.currentPrice || selectedAsset.price,
+        finalPnl: posToClose?.pnl || 0,
+      });
+    } catch (err) {
+      console.warn('Firestore update trade close error:', err);
+    }
+
+    // Add to local trade history state immediately
+    if (posToClose) {
+      const closedRecord: TradePosition = {
+        ...posToClose,
+        status: 'closed',
+        closeTime: closeTimeStr,
+        closePrice: posToClose.currentPrice,
+        finalPnl: posToClose.pnl,
+        closedAt: now.toISOString(),
+      };
+      setTradeHistory((prev) => [closedRecord, ...prev.filter((t) => t.id !== posId)]);
+    }
+
+    const updated = StorageService.closePosition(currentUser.email, posId);
+    if (updated && onUserUpdated) onUserUpdated(updated);
+    setTradeNotification('Position closed at market price and recorded in trade history.');
+    setTimeout(() => setTradeNotification(null), 2500);
+  }
+
+  // DELETE Operation: Delete trade record from Firestore 'trades' collection
+  async function handleDeleteTradeRecord(tradeId: string) {
+    try {
+      await deleteDoc(doc(db, 'trades', tradeId));
+      setTradeHistory((prev) => prev.filter((t) => t.id !== tradeId));
+      setTradeNotification('Trade record removed from database history.');
       setTimeout(() => setTradeNotification(null), 2500);
+    } catch (err) {
+      console.error('Error deleting trade from Firestore:', err);
     }
   }
 
@@ -877,143 +1007,351 @@ export function TradingDashboard({
             </div>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <h2 style={{ fontSize: 18, margin: 0 }}>Active Trades &amp; Positions ({positions.length})</h2>
-            <span style={{ fontSize: 13, color: 'var(--text2)' }}>
-              All trades tick live and remain active across logout and sessions
-            </span>
-          </div>
+          {/* Sub-navigation bar between Open Trades and Trade History */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setTradesSubTab('open')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 8,
+                  border: tradesSubTab === 'open' ? '1px solid var(--accent)' : '1px solid var(--border)',
+                  background: tradesSubTab === 'open' ? 'var(--accent)' : 'var(--card)',
+                  color: tradesSubTab === 'open' ? '#fff' : 'var(--text2)',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <Activity size={15} />
+                Open Trades ({positions.length})
+              </button>
 
-          {positions.length === 0 ? (
-            <div
+              <button
+                type="button"
+                onClick={() => setTradesSubTab('history')}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 8,
+                  border: tradesSubTab === 'history' ? '1px solid var(--accent)' : '1px solid var(--border)',
+                  background: tradesSubTab === 'history' ? 'var(--accent)' : 'var(--card)',
+                  color: tradesSubTab === 'history' ? '#fff' : 'var(--text2)',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <History size={15} />
+                Trade History ({tradeHistory.length})
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchUserTrades}
+              disabled={isLoadingTrades}
+              title="Refresh trades from Firestore"
               style={{
-                textAlign: 'center',
-                padding: 40,
-                background: 'var(--card)',
-                borderRadius: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                borderRadius: 8,
                 border: '1px solid var(--border)',
+                background: 'var(--card)',
+                color: 'var(--text2)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
               }}
             >
-              <Wallet size={32} style={{ color: 'var(--text3)', margin: '0 auto 12px' }} />
-              <p style={{ color: 'var(--text2)', margin: 0 }}>
-                No active trades. Select an OTC asset on the Trade tab to place an order.
-              </p>
-            </div>
-          ) : (
-            <div style={{ background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg2)', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ padding: '12px 16px' }}>Order ID</th>
-                    <th style={{ padding: '12px 16px' }}>Instrument</th>
-                    <th style={{ padding: '12px 16px' }}>Type</th>
-                    <th style={{ padding: '12px 16px' }}>Volume</th>
-                    <th style={{ padding: '12px 16px' }}>Entry Price</th>
-                    <th style={{ padding: '12px 16px' }}>Market Price</th>
-                    <th style={{ padding: '12px 16px' }}>Duration</th>
-                    <th style={{ padding: '12px 16px' }}>TP / SL</th>
-                    <th style={{ padding: '12px 16px' }}>Unrealized P&amp;L</th>
-                    <th style={{ padding: '12px 16px' }}>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.map((pos) => {
-                    const isProfitable = pos.pnl >= 0;
-                    return (
-                      <tr key={pos.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>{pos.id}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 600 }}>{pos.symbol}</td>
-                        <td style={{ padding: '12px 16px' }}>
-                          <span
-                            style={{
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                              fontWeight: 700,
-                              fontSize: 11,
-                              background: pos.side === 'buy' ? '#16a34a20' : '#dc262620',
-                              color: pos.side === 'buy' ? '#16a34a' : '#dc2626',
-                            }}
-                          >
-                            {pos.side.toUpperCase()}
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px 16px' }}>{pos.lotSize} Lots</td>
-                        <td style={{ padding: '12px 16px' }}>${pos.entryPrice.toLocaleString()}</td>
-                        <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text)' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            ${pos.currentPrice.toLocaleString(undefined, { minimumFractionDigits: pos.entryPrice < 10 ? 4 : 2 })}
-                            {isProfitable ? (
-                              <ArrowUp size={12} style={{ color: '#10b981' }} />
-                            ) : (
-                              <ArrowDown size={12} style={{ color: '#ef4444' }} />
-                            )}
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px 16px', color: 'var(--accent)', fontWeight: 600 }}>
-                          {pos.duration || '1 Day (24h)'}
-                        </td>
-                        <td style={{ padding: '12px 16px', fontSize: 12 }}>
-                          {pos.tp || pos.sl ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                              {pos.tp && <span style={{ color: '#10b981', fontWeight: 600 }}>TP: ${pos.tp}</span>}
-                              {pos.sl && <span style={{ color: '#ef4444', fontWeight: 600 }}>SL: ${pos.sl}</span>}
-                            </div>
-                          ) : (
-                            <span style={{ color: 'var(--text3)' }}>Market</span>
-                          )}
-                        </td>
-                        <td
-                          style={{
-                            padding: '12px 16px',
-                            fontWeight: 700,
-                            color: isProfitable ? '#16a34a' : '#dc2626',
-                          }}
-                        >
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 6,
-                              padding: '2px 8px',
-                              borderRadius: 6,
-                              background: isProfitable ? '#16a34a15' : '#dc262615',
-                            }}
-                          >
-                            <span
-                              style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: '50%',
-                                background: isProfitable ? '#16a34a' : '#dc2626',
-                              }}
-                            />
-                            {isProfitable ? '+' : ''}${pos.pnl.toFixed(2)} USD
-                          </span>
-                        </td>
-                        <td style={{ padding: '12px 16px' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleClosePosition(pos.id)}
-                            style={{
-                              padding: '4px 10px',
-                              borderRadius: 6,
-                              background: '#ef4444',
-                              color: '#fff',
-                              border: 'none',
-                              fontSize: 12,
-                              cursor: 'pointer',
-                              fontWeight: 500,
-                            }}
-                          >
-                            Close &amp; Settle
-                          </button>
-                        </td>
+              <RefreshCw size={13} className={isLoadingTrades ? 'animate-spin' : ''} />
+              {isLoadingTrades ? 'Syncing...' : 'Sync with Database'}
+            </button>
+          </div>
+
+          {/* VIEW 1: OPEN TRADES */}
+          {tradesSubTab === 'open' && (
+            <>
+              {positions.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: 'center',
+                    padding: 40,
+                    background: 'var(--card)',
+                    borderRadius: 12,
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <Wallet size={32} style={{ color: 'var(--text3)', margin: '0 auto 12px' }} />
+                  <p style={{ color: 'var(--text2)', margin: 0 }}>
+                    No active trades. Select an OTC asset on the Trade tab to place an order.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg2)', borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ padding: '12px 16px' }}>Order ID</th>
+                        <th style={{ padding: '12px 16px' }}>Instrument</th>
+                        <th style={{ padding: '12px 16px' }}>Type</th>
+                        <th style={{ padding: '12px 16px' }}>Volume</th>
+                        <th style={{ padding: '12px 16px' }}>Entry Price</th>
+                        <th style={{ padding: '12px 16px' }}>Market Price</th>
+                        <th style={{ padding: '12px 16px' }}>Duration</th>
+                        <th style={{ padding: '12px 16px' }}>TP / SL</th>
+                        <th style={{ padding: '12px 16px' }}>Unrealized P&amp;L</th>
+                        <th style={{ padding: '12px 16px' }}>Action</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {positions.map((pos) => {
+                        const isProfitable = pos.pnl >= 0;
+                        return (
+                          <tr key={pos.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>{pos.id}</td>
+                            <td style={{ padding: '12px 16px', fontWeight: 600 }}>{pos.symbol}</td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  fontWeight: 700,
+                                  fontSize: 11,
+                                  background: pos.side === 'buy' ? '#16a34a20' : '#dc262620',
+                                  color: pos.side === 'buy' ? '#16a34a' : '#dc2626',
+                                }}
+                              >
+                                {pos.side.toUpperCase()}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>{pos.lotSize} Lots</td>
+                            <td style={{ padding: '12px 16px' }}>${pos.entryPrice.toLocaleString()}</td>
+                            <td style={{ padding: '12px 16px', fontWeight: 600, color: 'var(--text)' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                ${pos.currentPrice.toLocaleString(undefined, { minimumFractionDigits: pos.entryPrice < 10 ? 4 : 2 })}
+                                {isProfitable ? (
+                                  <ArrowUp size={12} style={{ color: '#10b981' }} />
+                                ) : (
+                                  <ArrowDown size={12} style={{ color: '#ef4444' }} />
+                                )}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px', color: 'var(--accent)', fontWeight: 600 }}>
+                              {pos.duration || '1 Day (24h)'}
+                            </td>
+                            <td style={{ padding: '12px 16px', fontSize: 12 }}>
+                              {pos.tp || pos.sl ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                  {pos.tp && <span style={{ color: '#10b981', fontWeight: 600 }}>TP: ${pos.tp}</span>}
+                                  {pos.sl && <span style={{ color: '#ef4444', fontWeight: 600 }}>SL: ${pos.sl}</span>}
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text3)' }}>Market</span>
+                              )}
+                            </td>
+                            <td
+                              style={{
+                                padding: '12px 16px',
+                                fontWeight: 700,
+                                color: isProfitable ? '#16a34a' : '#dc2626',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  padding: '2px 8px',
+                                  borderRadius: 6,
+                                  background: isProfitable ? '#16a34a15' : '#dc262615',
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    width: 6,
+                                    height: 6,
+                                    borderRadius: '50%',
+                                    background: isProfitable ? '#16a34a' : '#dc2626',
+                                  }}
+                                />
+                                {isProfitable ? '+' : ''}${pos.pnl.toFixed(2)} USD
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleClosePosition(pos.id)}
+                                style={{
+                                  padding: '4px 10px',
+                                  borderRadius: 6,
+                                  background: '#ef4444',
+                                  color: '#fff',
+                                  border: 'none',
+                                  fontSize: 12,
+                                  cursor: 'pointer',
+                                  fontWeight: 500,
+                                }}
+                              >
+                                Close &amp; Settle
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* VIEW 2: TRADE HISTORY (READ from Firestore 'trades' collection) */}
+          {tradesSubTab === 'history' && (
+            <>
+              {tradeHistory.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: 'center',
+                    padding: 40,
+                    background: 'var(--card)',
+                    borderRadius: 12,
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <History size={32} style={{ color: 'var(--text3)', margin: '0 auto 12px' }} />
+                  <p style={{ color: 'var(--text2)', margin: 0 }}>
+                    No closed trades in Firestore history yet. Close an active position to see it recorded here.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ background: 'var(--card)', borderRadius: 12, border: '1px solid var(--border)', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                    <thead>
+                      <tr style={{ background: 'var(--bg2)', borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ padding: '12px 16px' }}>Order ID</th>
+                        <th style={{ padding: '12px 16px' }}>Instrument</th>
+                        <th style={{ padding: '12px 16px' }}>Type</th>
+                        <th style={{ padding: '12px 16px' }}>Volume</th>
+                        <th style={{ padding: '12px 16px' }}>Entry Price</th>
+                        <th style={{ padding: '12px 16px' }}>Exit Price</th>
+                        <th style={{ padding: '12px 16px' }}>Open Time</th>
+                        <th style={{ padding: '12px 16px' }}>Close Time</th>
+                        <th style={{ padding: '12px 16px' }}>Realized P&amp;L</th>
+                        <th style={{ padding: '12px 16px' }}>Status</th>
+                        <th style={{ padding: '12px 16px' }}>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tradeHistory.map((tr) => {
+                        const finalPnl = tr.finalPnl !== undefined ? tr.finalPnl : tr.pnl;
+                        const isProfitable = finalPnl >= 0;
+                        return (
+                          <tr key={tr.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                            <td style={{ padding: '12px 16px', fontFamily: 'monospace' }}>{tr.id}</td>
+                            <td style={{ padding: '12px 16px', fontWeight: 600 }}>{tr.symbol}</td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  fontWeight: 700,
+                                  fontSize: 11,
+                                  background: tr.side === 'buy' ? '#16a34a20' : '#dc262620',
+                                  color: tr.side === 'buy' ? '#16a34a' : '#dc2626',
+                                }}
+                              >
+                                {tr.side.toUpperCase()}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>{tr.lotSize} Lots</td>
+                            <td style={{ padding: '12px 16px' }}>${tr.entryPrice.toLocaleString()}</td>
+                            <td style={{ padding: '12px 16px', fontWeight: 600 }}>
+                              ${(tr.closePrice || tr.currentPrice).toLocaleString()}
+                            </td>
+                            <td style={{ padding: '12px 16px', color: 'var(--text3)' }}>{tr.openTime}</td>
+                            <td style={{ padding: '12px 16px', color: 'var(--text3)' }}>{tr.closeTime || '—'}</td>
+                            <td
+                              style={{
+                                padding: '12px 16px',
+                                fontWeight: 700,
+                                color: isProfitable ? '#16a34a' : '#dc2626',
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  padding: '2px 8px',
+                                  borderRadius: 6,
+                                  background: isProfitable ? '#16a34a15' : '#dc262615',
+                                }}
+                              >
+                                {isProfitable ? '+' : ''}${finalPnl.toFixed(2)} USD
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <span
+                                style={{
+                                  padding: '2px 8px',
+                                  borderRadius: 4,
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  background: 'var(--bg2)',
+                                  color: 'var(--text2)',
+                                  border: '1px solid var(--border)',
+                                }}
+                              >
+                                Settled
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 16px' }}>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTradeRecord(tr.id)}
+                                title="Delete trade record from Firestore"
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: 6,
+                                  background: 'transparent',
+                                  color: '#ef4444',
+                                  border: '1px solid #ef444440',
+                                  fontSize: 12,
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <Trash2 size={13} /> Delete
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

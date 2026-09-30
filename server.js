@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 // Serve static assets from Vite build
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// SPA fallback to index.html
+// SPA fallback to client website index.html
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });

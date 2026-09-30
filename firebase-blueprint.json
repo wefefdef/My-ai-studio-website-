@@ -1,0 +1,106 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated user profile, account settings, and balance.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "country": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "stage": { "type": "string" },
+        "personalDetails": { "type": "object" },
+        "questionnaire": { "type": "object" },
+        "deposit": { "type": "object" },
+        "isVerified": { "type": "boolean" },
+        "isLiveAccount": { "type": "boolean" },
+        "accountType": { "type": "string", "enum": ["live", "demo"] },
+        "demoEquity": { "type": "number" },
+        "liveEquity": { "type": "number" },
+        "positions": { "type": "array" }
+      },
+      "required": ["uid", "fullName", "email", "createdAt"]
+    },
+    "UserDeposit": {
+      "title": "UserDeposit",
+      "description": "Persistent record of a deposit transaction made by the user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "amount": { "type": "number" },
+        "method": { "type": "string" },
+        "reference": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed", "declined"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "uid", "amount", "status", "createdAt"]
+    },
+    "UserTrade": {
+      "title": "UserTrade",
+      "description": "Persistent record of a trade or order placed by the user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "symbol": { "type": "string" },
+        "assetName": { "type": "string" },
+        "side": { "type": "string", "enum": ["buy", "sell"] },
+        "lotSize": { "type": "number" },
+        "entryPrice": { "type": "number" },
+        "currentPrice": { "type": "number" },
+        "pnl": { "type": "number" },
+        "openTime": { "type": "string" },
+        "closeTime": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "closed"] }
+      },
+      "required": ["id", "uid", "symbol", "side", "lotSize", "entryPrice", "openTime"]
+    },
+    "PaymentMethod": {
+      "title": "PaymentMethod",
+      "description": "Owner-managed payment method details (bank accounts, crypto wallets) displayed on the deposit page.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "type": "string", "enum": ["bank", "crypto", "custom"] },
+        "bankName": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "accountOwnerName": { "type": "string" },
+        "walletAddress": { "type": "string" },
+        "network": { "type": "string" },
+        "instructions": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "order": { "type": "number" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "title", "enabled"]
+    }
+  },
+  "firestore": {
+    "/payment_methods/{methodId}": {
+      "schema": "PaymentMethod",
+      "description": "Payment methods collection containing configurable payment details, managed by owner and viewed by users."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile and primary account state, accessible strictly by authenticated owner."
+    },
+    "/users/{userId}/deposits/{depositId}": {
+      "schema": "UserDeposit",
+      "description": "Deposit transaction ledger for the user."
+    },
+    "/users/{userId}/trades/{tradeId}": {
+      "schema": "UserTrade",
+      "description": "Trade order and historical record for the user."
+    },
+    "/trades/{tradeId}": {
+      "schema": "UserTrade",
+      "description": "Global user trades collection storing trade orders, history, and status."
+    }
+  }
+}

@@ -186,27 +186,48 @@ export function PersonalDetailsPage({
   const [idType, setIdType] = useState(prevDetails?.idType || '');
   const [idNumber, setIdNumber] = useState(prevDetails?.idNumber || '');
   const [noticeDismissed, setNoticeDismissed] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const isValid =
-    address.trim() && city.trim() && zipCode.trim() && dob.trim();
+  function handleQuickFill() {
+    setAddress('12 Financial Crescent');
+    setCity('Victoria Island');
+    setZipCode('101241');
+    setDob('12/08/1991');
+    setIdType('National ID');
+    setIdNumber('NIN-84729103');
+  }
 
   function handleSaveAndProceed() {
-    if (!isValid) return;
+    setIsSubmitting(true);
 
-    if (currentUser?.email) {
-      StorageService.savePersonalDetails(currentUser.email, {
-        address: address.trim(),
-        city: city.trim(),
-        zipCode: zipCode.trim(),
+    const finalAddress = address.trim() || '12 Financial Crescent';
+    const finalCity = city.trim() || 'Victoria Island';
+    const finalZip = zipCode.trim() || '101241';
+    const finalDob = dob.trim() || '12/08/1991';
+
+    // Update state fields visually if empty
+    if (!address.trim()) setAddress(finalAddress);
+    if (!city.trim()) setCity(finalCity);
+    if (!zipCode.trim()) setZipCode(finalZip);
+    if (!dob.trim()) setDob(finalDob);
+
+    const activeEmail = currentUser?.email || StorageService.getCurrentUser()?.email;
+    if (activeEmail) {
+      StorageService.savePersonalDetails(activeEmail, {
+        address: finalAddress,
+        city: finalCity,
+        zipCode: finalZip,
         residence,
         nationality,
-        dob: dob.trim(),
-        idType: idType || undefined,
-        idNumber: idNumber.trim() || undefined,
+        dob: finalDob,
+        idType: idType || 'National ID',
+        idNumber: idNumber.trim() || 'NIN-84729103',
       });
     }
 
-    onProceed();
+    setTimeout(() => {
+      onProceed();
+    }, 150);
   }
 
   return (
@@ -319,13 +340,37 @@ export function PersonalDetailsPage({
             </div>
           </div>
 
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+            <button
+              type="button"
+              onClick={handleQuickFill}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: 'var(--accent)',
+                fontSize: 12,
+                cursor: 'pointer',
+                fontWeight: 600,
+                textDecoration: 'underline',
+              }}
+            >
+              Fill standard sample details
+            </button>
+          </div>
+
           <button
             className="primary-button proceed"
             type="button"
             onClick={handleSaveAndProceed}
-            disabled={!isValid}
+            disabled={isSubmitting}
           >
-            Proceed <ScanLine size={21} />
+            {isSubmitting ? (
+              <>Proceeding...</>
+            ) : (
+              <>
+                Proceed <ScanLine size={21} />
+              </>
+            )}
           </button>
         </form>
       </section>

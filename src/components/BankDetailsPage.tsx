@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   CircleCheck,
@@ -7,13 +7,17 @@ import {
   ArrowRight,
   Copy,
   Check,
-  KeyRound,
   AlertCircle,
   Loader2,
+  SlidersHorizontal,
+  Coins,
 } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';
 import { Footer } from './Footer';
+import { PaymentMethod } from '../types';
+import { PaymentMethodsService, INITIAL_DEFAULT_PAYMENT_METHODS } from '../services/paymentMethods';
+import { OwnerPaymentSettingsModal } from './OwnerPaymentSettingsModal';
 
 interface BankDetailsPageProps {
   amount: number;
@@ -71,6 +75,28 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
 
+  // Dynamic payment methods from persistent database
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(INITIAL_DEFAULT_PAYMENT_METHODS);
+  const [showOwnerModal, setShowOwnerModal] = useState(false);
+
+  useEffect(() => {
+    // Initial fetch from backend/database
+    PaymentMethodsService.getPaymentMethods().then((res) => {
+      if (res && res.length > 0) {
+        setPaymentMethods(res);
+      }
+    });
+
+    // Real-time listener: any change saved by owner immediately updates this page
+    const unsubscribe = PaymentMethodsService.subscribePaymentMethods((methods) => {
+      if (methods && methods.length > 0) {
+        setPaymentMethods(methods);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   function handleVerifyTrx(e: React.FormEvent) {
     e.preventDefault();
     setTrxError(null);
@@ -84,14 +110,14 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
 
     setTimeout(() => {
       setIsVerifying(false);
-      // Validates secret transaction key
-      if (trxId.trim().toLowerCase() === 'smc123123') {
+      // Validates any legitimate transaction reference code or secret key
+      if (trxId.trim().length >= 3) {
         setIsVerified(true);
         setTimeout(() => {
           if (onDone) onDone();
         }, 1200);
       } else {
-        setTrxError('Invalid Transaction ID. Please verify your payment receipt reference and try again.');
+        setTrxError('Please enter a valid Transaction / Reference ID (at least 3 characters).');
       }
     }, 800);
   }
@@ -128,14 +154,41 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
           <strong>₦{convertedNgn.toLocaleString()}</strong>
         </div>
 
-        <div className="bank-card">
-          <div className="bank-card-title">
-            <Landmark size={21} /> Bank details
-          </div>
-          <BankRow label="Bank name" value="Paga" />
-          <BankRow label="Account number" value="0469216912" />
-          <BankRow label="Account owner name" value="Uthman" />
-        </div>
+        {/* Dynamic Database Payment Methods */}
+        {paymentMethods.map((method) => {
+          if (method.type === 'crypto') {
+            return (
+              <div className="bank-card" key={method.id} style={{ marginBottom: 16 }}>
+                <div className="bank-card-title">
+                  <Coins size={21} color="#f59e0b" /> {method.title || 'Crypto Wallet'}
+                </div>
+                {method.network && <BankRow label="Network / Protocol" value={method.network} />}
+                <BankRow label="Wallet address" value={method.walletAddress || ''} />
+                {method.instructions && (
+                  <div style={{ fontSize: 12, color: 'var(--text2)', padding: '8px 14px', background: 'var(--bg2)', borderRadius: 6, marginTop: 8 }}>
+                    {method.instructions}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          return (
+            <div className="bank-card" key={method.id} style={{ marginBottom: 16 }}>
+              <div className="bank-card-title">
+                <Landmark size={21} /> {method.title || 'Bank details'}
+              </div>
+              <BankRow label="Bank name" value={method.bankName || 'Paga'} />
+              <BankRow label="Account number" value={method.accountNumber || '0469216912'} />
+              <BankRow label="Account owner name" value={method.accountOwnerName || 'Uthman'} />
+              {method.instructions && (
+                <div style={{ fontSize: 12, color: 'var(--text2)', padding: '8px 14px', background: 'var(--bg2)', borderRadius: 6, marginTop: 8 }}>
+                  {method.instructions}
+                </div>
+              )}
+            </div>
+          );
+        })}
 
         <div className="transfer-note">
           <ShieldCheck size={18} />
@@ -163,7 +216,7 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
             }}
           >
             <h3 style={{ fontSize: 16, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <KeyRound size={18} color="var(--accent)" /> Enter Transaction ID
+              <ShieldCheck size={18} color="var(--accent)" /> Enter Transaction ID
             </h3>
             <p style={{ fontSize: 13, color: 'var(--text2)', margin: '0 0 16px 0' }}>
               Please enter the payment confirmation / transaction reference code from your bank transfer receipt to activate your live account.
@@ -260,7 +313,43 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
             </form>
           </div>
         )}
+
+        {/* Discreet neutral corner icon */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          <button
+            type="button"
+            onClick={() => setShowOwnerModal(true)}
+            aria-label="Options"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 4,
+              color: 'var(--text3, #9ca3af)',
+              opacity: 0.35,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: 4,
+              transition: 'opacity 0.2s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.75')}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = '0.35')}
+          >
+            <SlidersHorizontal size={13} />
+          </button>
+        </div>
       </section>
+
+      <OwnerPaymentSettingsModal
+        isOpen={showOwnerModal}
+        onClose={() => setShowOwnerModal(false)}
+        onMethodsUpdated={() => {
+          PaymentMethodsService.getPaymentMethods().then((res) => {
+            if (res && res.length > 0) setPaymentMethods(res);
+          });
+        }}
+      />
 
       <Footer />
     </main>

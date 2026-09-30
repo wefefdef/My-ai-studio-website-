@@ -90,9 +90,12 @@ export interface TradePosition {
   assetName: string;
   side: 'buy' | 'sell';
   lotSize: number;
+  leverage?: number;
+  accountType?: 'live' | 'demo';
   entryPrice: number;
   currentPrice: number;
   closePrice?: number;
+  closeReason?: 'manual' | 'tp' | 'sl';
   tp?: string;
   sl?: string;
   pnl: number;
@@ -119,7 +122,9 @@ export interface UserAccount {
   createdAt: string;
   stage: ViewState;
   personalDetails?: PersonalDetails;
+  personalDetailsCompleted?: boolean;
   questionnaire?: QuestionnaireData;
+  questionnaireCompleted?: boolean;
   deposit?: DepositRecord;
   isVerified: boolean;
   isLiveAccount: boolean;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ViewState, UserAccount } from './types';
 import { LandingPage } from './components/LandingPage';
 import { RegisterPage } from './components/RegisterPage';
@@ -15,6 +15,53 @@ import { FullProfilePage } from './components/FullProfilePage';
 import { WithdrawalPage } from './components/WithdrawalPage';
 import { StorageService } from './services/storage';
 
+// Helper to determine the strictly legitimate next view for a user.
+// Consolidates checks with StorageService to guarantee that 'details' and 'questionnaire'
+// can NEVER be accessed again once completed, via back button or URL manipulation.
+function resolveLegitimateView(targetView: ViewState, user: UserAccount | null): ViewState {
+  if (!user) {
+    if (targetView === 'register' || targetView === 'sign-in') {
+      return targetView;
+    }
+    return 'landing';
+  }
+
+  const hasDetails = StorageService.hasCompletedPersonalDetails(user);
+  const hasQuestionnaire = StorageService.hasCompletedQuestionnaire(user);
+  const isCompleted =
+    user.stage === 'trading' ||
+    user.isVerified ||
+    user.isLiveAccount ||
+    (hasDetails && hasQuestionnaire);
+
+  // If user has completed their onboarding or reached trading: NEVER EVER show details or questionnaire
+  if (isCompleted) {
+    if (
+      targetView === 'details' ||
+      targetView === 'questionnaire' ||
+      targetView === 'sign-in' ||
+      targetView === 'register' ||
+      targetView === 'landing' ||
+      targetView === 'all-done'
+    ) {
+      return 'trading';
+    }
+    return targetView;
+  }
+
+  // If details were already filled once: NEVER show details page again
+  if (hasDetails && (targetView === 'details' || targetView === 'sign-in' || targetView === 'register')) {
+    return user.stage === 'questionnaire' ? 'questionnaire' : 'payments';
+  }
+
+  // If questionnaire was already completed: NEVER show questionnaire again
+  if (hasQuestionnaire && targetView === 'questionnaire') {
+    return 'trading';
+  }
+
+  return targetView;
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() =>
     StorageService.getCurrentUser()
@@ -22,14 +69,19 @@ export default function App() {
 
   const [view, setView] = useState<ViewState>(() => {
     const active = StorageService.getCurrentUser();
+    // Check initial hash if present in URL
+    const initialHash = window.location.hash.replace('#', '') as ViewState;
     if (active) {
-      // Resume from where the user left off
-      return active.stage || 'trading';
+      const candidate = initialHash || active.stage || 'trading';
+      return resolveLegitimateView(candidate, active);
+    }
+    if (initialHash === 'register' || initialHash === 'sign-in') {
+      return initialHash;
     }
     return 'landing';
   });
 
-  const [prevView, setPrevView] = useState<ViewState>('landing');
+  const [historyStack, setHistoryStack] = useState<ViewState[]>([view]);
   const [depositAmount, setDepositAmount] = useState(200);
   const [depositMethod, setDepositMethod] = useState('bank-transfer-ng');
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
@@ -48,9 +100,19 @@ export default function App() {
       const activeUser = await StorageService.fetchFreshUserFromFirebase();
       if (activeUser) {
         setCurrentUser(activeUser);
+        const resolved = resolveLegitimateView(view, activeUser);
+        if (resolved !== view) {
+          setView(resolved);
+          window.history.replaceState({ view: resolved, stackIndex: 0 }, '', '#' + resolved);
+        }
       }
     }
     syncFirestore();
+  }, []);
+
+  // Initialize browser history entry on mount so mobile hardware back button operates properly
+  useEffect(() => {
+    window.history.replaceState({ view, stackIndex: 0 }, '', '#' + view);
   }, []);
 
   // Keep currentUser state in sync with storage updates
@@ -61,11 +123,143 @@ export default function App() {
     }
   }, [view]);
 
-  function navigate(next: ViewState) {
-    setPrevView(view);
-    setView(next);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
+  // Determine fallback 1-step back sequence
+  const getOneStepBack = useCallback(
+    (current: ViewState): ViewState => {
+      const active = currentUser || StorageService.getCurrentUser();
+      const hasDetails = StorageService.hasCompletedPersonalDetails(active);
+      const hasQuestionnaire = StorageService.hasCompletedQuestionnaire(active);
+
+      switch (current) {
+        case 'register':
+        case 'sign-in':
+          return 'landing';
+
+        case 'details':
+          return 'sign-in';
+
+        case 'payments':
+          if (active?.stage === 'trading' || active?.isLiveAccount || hasDetails) {
+            return 'trading';
+          }
+          return 'details';
+
+        case 'bank-transfer':
+          return 'payments';
+
+        case 'bank-details':
+          return 'bank-transfer';
+
+        case 'card-form':
+          return 'payments';
+
+        case 'questionnaire':
+          if (hasDetails) {
+            return 'payments';
+          }
+          return 'bank-details';
+
+        case 'all-done':
+        case 'profile':
+        case 'withdraw':
+          return 'trading';
+
+        case 'trading':
+          return 'trading'; // Safe boundary on platform dashboard
+
+        default:
+          return 'landing';
+      }
+    },
+    [currentUser]
+  );
+
+  // Navigate to next view, enforcing rules & pushing/replacing browser history
+  const navigate = useCallback(
+    (rawNext: ViewState, replace: boolean = false) => {
+      const active = currentUser || StorageService.getCurrentUser();
+      const next = resolveLegitimateView(rawNext, active);
+
+      if (next === view) return;
+
+      if (replace) {
+        window.history.replaceState({ view: next }, '', '#' + next);
+        setHistoryStack((prev) => [...prev.slice(0, -1), next]);
+      } else {
+        window.history.pushState({ view: next }, '', '#' + next);
+        setHistoryStack((prev) => [...prev, next]);
+      }
+
+      setView(next);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [view, currentUser]
+  );
+
+  // Universal one-step back handler for platform back buttons and mobile devices
+  const goBack = useCallback(() => {
+    // If browser history has our stack, use window.history.back() to fire popstate
+    if (historyStack.length > 1) {
+      window.history.back();
+    } else {
+      const prev = getOneStepBack(view);
+      navigate(prev, true);
+    }
+  }, [historyStack, view, getOneStepBack, navigate]);
+
+  // Mobile phone hardware back button & browser back button listener
+  useEffect(() => {
+    function handlePopState(e: PopStateEvent) {
+      const active = currentUser || StorageService.getCurrentUser();
+
+      let targetView: ViewState = e.state?.view || getOneStepBack(view);
+      const resolved = resolveLegitimateView(targetView, active);
+
+      // If user attempted to return to a completed/forbidden page, rewrite history entry immediately
+      if (resolved !== targetView) {
+        window.history.replaceState({ view: resolved }, '', '#' + resolved);
+      }
+
+      setView(resolved);
+
+      // Purge any completed onboarding pages from the in-memory history stack
+      setHistoryStack((prev) => {
+        const cleaned = prev.filter((v) => {
+          if (v === 'details' && StorageService.hasCompletedPersonalDetails(active)) return false;
+          if (v === 'questionnaire' && StorageService.hasCompletedQuestionnaire(active)) return false;
+          if ((v === 'register' || v === 'sign-in') && active) return false;
+          return true;
+        });
+        return cleaned.length > 1 ? cleaned.slice(0, -1) : [resolved];
+      });
+    }
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [view, currentUser, getOneStepBack]);
+
+  // URL Manipulation Guard (e.g. user manually typing '#details' or '#questionnaire' in address bar)
+  useEffect(() => {
+    function handleHashChange() {
+      const hashView = window.location.hash.replace('#', '') as ViewState;
+      if (hashView) {
+        const active = currentUser || StorageService.getCurrentUser();
+        const resolved = resolveLegitimateView(hashView, active);
+
+        if (resolved !== hashView) {
+          // Immediately redirect and replace the manipulated URL
+          window.history.replaceState({ view: resolved }, '', '#' + resolved);
+        }
+
+        if (resolved !== view) {
+          setView(resolved);
+        }
+      }
+    }
+
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [view, currentUser]);
 
   function handleRegistered(email: string) {
     setPrefilledEmail(email);
@@ -79,30 +273,51 @@ export default function App() {
     setCurrentUser(user);
     setRegistrationMessage(null);
 
-    // Continue from where the user left off:
-    // If they already completed everything or have live account, go straight to trading!
-    if (user.stage === 'trading' || user.isVerified || user.isLiveAccount) {
-      navigate('trading');
+    const hasDetails = StorageService.hasCompletedPersonalDetails(user);
+    const hasQuestionnaire = StorageService.hasCompletedQuestionnaire(user);
+    const isCompleted =
+      user.stage === 'trading' ||
+      user.isVerified ||
+      user.isLiveAccount ||
+      (hasDetails && hasQuestionnaire);
+
+    // If details & questionnaire are already filled, go directly to trading! Never ask again!
+    if (isCompleted) {
+      // Purge onboarding pages from history stack
+      setHistoryStack(['trading']);
+      navigate('trading', true);
+    } else if (hasDetails) {
+      setHistoryStack(['payments']);
+      navigate(user.stage === 'details' ? 'payments' : (user.stage || 'payments'), true);
     } else {
-      navigate(user.stage || 'details');
+      navigate('details', true);
     }
   }
 
   function handleLogout() {
     StorageService.logout();
     setCurrentUser(null);
-    navigate('landing');
+    setHistoryStack(['landing']);
+    navigate('landing', true);
   }
 
   function handlePersonalDetailsProceed() {
     const activeEmail = currentUser?.email || StorageService.getCurrentUser()?.email;
     if (activeEmail) {
       const updated = StorageService.updateUserByEmail(activeEmail, {
+        personalDetailsCompleted: true,
         stage: 'payments',
       });
       if (updated) setCurrentUser(updated);
     }
-    navigate('payments');
+
+    // Effectively remove 'details', 'register', 'sign-in' from history stack
+    setHistoryStack((prev) =>
+      prev.filter((v) => v !== 'details' && v !== 'register' && v !== 'sign-in' && v !== 'landing')
+    );
+
+    // Replace browser history entry so back button can NEVER return to details
+    navigate('payments', true);
   }
 
   function handleDepositCompleted(amount: number) {
@@ -121,16 +336,19 @@ export default function App() {
 
   function handleBankDetailsDone() {
     if (currentUser?.email) {
-      const hasQuestionnaire = !!currentUser.questionnaire;
-      if (hasQuestionnaire) {
-        // Questionnaire already filled; immediately open live account
+      const hasQuestionnaire = StorageService.hasCompletedQuestionnaire(currentUser);
+      if (hasQuestionnaire || currentUser.stage === 'trading' || currentUser.isLiveAccount) {
+        // Questionnaire already filled; immediately open live account and purge onboarding history
         const updated = StorageService.updateUserByEmail(currentUser.email, {
           stage: 'trading',
           isLiveAccount: true,
           accountType: 'live',
+          questionnaireCompleted: true,
+          personalDetailsCompleted: true,
         });
         if (updated) setCurrentUser(updated);
-        navigate('trading');
+        setHistoryStack(['trading']);
+        navigate('trading', true);
         return;
       }
 
@@ -148,13 +366,20 @@ export default function App() {
     if (currentUser?.email) {
       const updated = StorageService.updateUserByEmail(currentUser.email, {
         stage: 'trading',
+        questionnaireCompleted: true,
+        personalDetailsCompleted: true,
         isVerified: true,
         isLiveAccount: true,
         accountType: 'live',
       });
       if (updated) setCurrentUser(updated);
     }
-    navigate('trading');
+
+    // Effectively remove all onboarding pages ('questionnaire', 'details', 'payments') from history stack
+    setHistoryStack(['trading']);
+
+    // Replace browser history entry so back button can NEVER return to questionnaire
+    navigate('trading', true);
   }
 
   function handleStartTrading() {
@@ -162,8 +387,11 @@ export default function App() {
       const updated = StorageService.completeAllDone(currentUser.email);
       if (updated) setCurrentUser(updated);
     }
-    navigate('trading');
+    setHistoryStack(['trading']);
+    navigate('trading', true);
   }
+
+  // --- ROUTED VIEWS WITH EXACT 1-STEP BACK & PERMANENT STAGE GUARDS ---
 
   if (view === 'landing') {
     return (
@@ -185,7 +413,7 @@ export default function App() {
           setRegistrationMessage(null);
           navigate('sign-in');
         }}
-        onBack={() => navigate('landing')}
+        onBack={goBack}
       />
     );
   }
@@ -197,7 +425,7 @@ export default function App() {
         registrationSuccessMessage={registrationMessage}
         onLoginSuccess={handleLoginSuccess}
         onGoToRegister={() => navigate('register')}
-        onBack={() => navigate('landing')}
+        onBack={goBack}
       />
     );
   }
@@ -206,7 +434,7 @@ export default function App() {
     return (
       <PersonalDetailsPage
         currentUser={currentUser}
-        onBack={() => navigate('sign-in')}
+        onBack={goBack}
         onProceed={handlePersonalDetailsProceed}
       />
     );
@@ -215,7 +443,7 @@ export default function App() {
   if (view === 'payments') {
     return (
       <PaymentMethodsPage
-        onBack={() => navigate(prevView === 'trading' ? 'trading' : 'details')}
+        onBack={goBack}
         onBankTransfer={(m) => {
           setDepositMethod(m);
           navigate('bank-transfer');
@@ -237,7 +465,7 @@ export default function App() {
     return (
       <BankTransferDepositPage
         method={depositMethod}
-        onBack={() => navigate('payments')}
+        onBack={goBack}
         onDeposit={handleDepositCompleted}
       />
     );
@@ -247,14 +475,14 @@ export default function App() {
     return (
       <BankDetailsPage
         amount={depositAmount}
-        onBack={() => navigate('bank-transfer')}
+        onBack={goBack}
         onDone={handleBankDetailsDone}
       />
     );
   }
 
   if (view === 'card-form') {
-    return <CardFormPage onBack={() => navigate('payments')} />;
+    return <CardFormPage onBack={goBack} />;
   }
 
   if (view === 'questionnaire') {
@@ -262,7 +490,7 @@ export default function App() {
       <QuestionnairePage
         currentUser={currentUser}
         onComplete={handleQuestionnaireComplete}
-        onBack={() => navigate('payments')}
+        onBack={goBack}
       />
     );
   }
@@ -275,7 +503,7 @@ export default function App() {
     return (
       <FullProfilePage
         currentUser={currentUser}
-        onBack={() => navigate('trading')}
+        onBack={goBack}
         onLogout={handleLogout}
         theme={theme}
         onThemeChange={setTheme}
@@ -293,7 +521,7 @@ export default function App() {
   }
 
   if (view === 'withdraw') {
-    return <WithdrawalPage onBack={() => navigate('trading')} />;
+    return <WithdrawalPage onBack={goBack} />;
   }
 
   return (

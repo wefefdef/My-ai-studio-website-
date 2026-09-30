@@ -20,6 +20,11 @@ import {
   Trash2,
   History,
   RefreshCw,
+  Zap,
+  Target,
+  ShieldAlert,
+  Search,
+  Flame,
 } from 'lucide-react';
 import {
   collection,
@@ -38,6 +43,20 @@ import { BrandMark } from './BrandMark';
 import { InteractiveChart } from './InteractiveChart';
 import { SparklineChart } from './SparklineChart';
 import { StorageService } from '../services/storage';
+import { playTradeSound } from '../utils/tradeAudio';
+
+const LEVERAGE_OPTIONS = [
+  { value: 50, label: '1:50', tier: 'Standard', marginPct: '2.00%' },
+  { value: 100, label: '1:100', tier: 'Classic', marginPct: '1.00%' },
+  { value: 200, label: '1:200', tier: 'Pro', marginPct: '0.50%' },
+  { value: 500, label: '1:500', tier: 'High', marginPct: '0.20%' },
+  { value: 1000, label: '1:1000', tier: '⚡ Ultra High', marginPct: '0.10%' },
+  { value: 2000, label: '1:2000', tier: '🔥 Extreme High', marginPct: '0.05%' },
+  { value: 3000, label: '1:3000', tier: '🚀 Elite High', marginPct: '0.033%' },
+  { value: 5000, label: '1:5000', tier: '👑 MAX PRO High', marginPct: '0.02%' },
+];
+
+const QUICK_LOTS = ['0.01', '0.05', '0.10', '0.25', '0.50', '1.00', '2.00', '5.00'];
 
 interface TradingDashboardProps {
   currentUser?: UserAccount | null;
@@ -60,8 +79,12 @@ export function TradingDashboard({
   onUserUpdated,
   onOpenProfile,
 }: TradingDashboardProps) {
-  const [otcAssets, setOtcAssets] = useState<MarketAsset[]>(OTC_ASSETS);
-  const [selectedAsset, setSelectedAsset] = useState<MarketAsset>(OTC_ASSETS[0]);
+  const [otcAssets, setOtcAssets] = useState<MarketAsset[]>(MARKET_ASSETS);
+  const [selectedAsset, setSelectedAsset] = useState<MarketAsset>(MARKET_ASSETS[0]);
+  const [marketCategory, setMarketCategory] = useState<string>('All Markets');
+  const [marketSearch, setMarketSearch] = useState<string>('');
+  const [leverage, setLeverage] = useState<number>(500); // Default High Leverage 1:500
+  const [isExecuting, setIsExecuting] = useState(false);
   const [newsIndex, setNewsIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'chart' | 'markets' | 'positions'>('chart');
   const [lotSize, setLotSize] = useState('0.10');
@@ -140,33 +163,108 @@ export function TradingDashboard({
     fetchUserTrades();
   }, [currentUser?.email]);
 
-  // Contract sizing for authentic financial market PnL calculation
+  // Contract sizing for authentic financial market PnL calculation across 100+ assets
   const getContractMultiplier = (symbol: string): number => {
-    if (symbol.includes('EUR') || symbol.includes('GBP') || symbol.includes('USD/JPY') || symbol.includes('AUD')) {
-      return 100000; // 100,000 units standard Forex lot
+    // Forex pairs: 100,000 standard lot
+    if (
+      symbol.includes('EUR') ||
+      symbol.includes('GBP') ||
+      symbol.includes('AUD') ||
+      symbol.includes('NZD') ||
+      symbol.includes('CAD') ||
+      symbol.includes('CHF') ||
+      symbol.includes('JPY') ||
+      symbol.includes('USD/MXN') ||
+      symbol.includes('USD/ZAR') ||
+      symbol.includes('USD/SGD') ||
+      symbol.includes('USD/TRY') ||
+      symbol.includes('USD/INR') ||
+      symbol.includes('USD/BRL')
+    ) {
+      return 100000;
     }
-    if (symbol.includes('BTC') || symbol.includes('ETH') || symbol.includes('SOL') || symbol.includes('XRP')) {
-      return 1; // 1 crypto unit
+    // High-value Crypto (BTC, ETH, SOL, BNB, AVAX, BCH, LTC, etc.)
+    if (
+      symbol.includes('BTC') ||
+      symbol.includes('ETH') ||
+      symbol.includes('SOL') ||
+      symbol.includes('BNB') ||
+      symbol.includes('AVAX') ||
+      symbol.includes('BCH') ||
+      symbol.includes('LTC')
+    ) {
+      return 1;
     }
+    // Mid-value Crypto (XRP, ADA, DOT, LINK, SUI, NEAR, INJ, RENDER, POL, UNI, TON, KAS, ARB, OP)
+    if (
+      symbol.includes('XRP') ||
+      symbol.includes('ADA') ||
+      symbol.includes('DOT') ||
+      symbol.includes('LINK') ||
+      symbol.includes('SUI') ||
+      symbol.includes('NEAR') ||
+      symbol.includes('INJ') ||
+      symbol.includes('RENDER') ||
+      symbol.includes('POL') ||
+      symbol.includes('UNI') ||
+      symbol.includes('TON') ||
+      symbol.includes('ARB') ||
+      symbol.includes('OP') ||
+      symbol.includes('KAS')
+    ) {
+      return 10;
+    }
+    // Micro/meme tokens (PEPE, SHIB, BONK, FLOKI, DOGE)
+    if (
+      symbol.includes('PEPE') ||
+      symbol.includes('SHIB') ||
+      symbol.includes('BONK') ||
+      symbol.includes('FLOKI')
+    ) {
+      return 1000000;
+    }
+    if (symbol.includes('DOGE')) {
+      return 1000;
+    }
+    // Precious Metals
     if (symbol.includes('XAU') || symbol.includes('Gold')) {
       return 100; // 100 oz Gold
     }
     if (symbol.includes('XAG') || symbol.includes('Silver')) {
       return 5000; // 5000 oz Silver
     }
-    if (symbol.includes('BCO') || symbol.includes('Oil') || symbol.includes('NG')) {
-      return 1000; // 1000 barrels Oil / MMBtu Gas
+    if (symbol.includes('XPT') || symbol.includes('Platinum') || symbol.includes('XPD') || symbol.includes('Palladium')) {
+      return 100; // 100 oz
     }
-    return 100; // 100 shares per lot for Stocks / Indices
+    // Energy Commodities
+    if (symbol.includes('BCO') || symbol.includes('Oil') || symbol.includes('WTI') || symbol.includes('NG')) {
+      return 1000; // 1000 barrels / MMBtu
+    }
+    // Agricultural / Metal Commodities
+    if (
+      symbol.includes('HG') ||
+      symbol.includes('Copper') ||
+      symbol.includes('ALU') ||
+      symbol.includes('Aluminum') ||
+      symbol.includes('WHEAT') ||
+      symbol.includes('CORN') ||
+      symbol.includes('COFFEE') ||
+      symbol.includes('SUGAR')
+    ) {
+      return 5000;
+    }
+    // Stocks & Indices: 100 contracts / shares per lot
+    return 100;
   };
 
   const totalUnrealizedPnl = positions.reduce((acc, pos) => acc + (pos.pnl || 0), 0);
   const currentEquity = +(bookedBalance + totalUnrealizedPnl).toFixed(2);
 
-  // Standard margin calculation with 1:100 leverage
+  // Margin calculation incorporating selectable high leverage (1:50 up to 1:5000)
   const marginUsed = positions.reduce((acc, pos) => {
     const notional = pos.entryPrice * getContractMultiplier(pos.symbol) * pos.lotSize;
-    return acc + notional / 100;
+    const lev = pos.leverage || leverage || 500;
+    return acc + notional / lev;
   }, 0);
   const freeMargin = Math.max(0, currentEquity - marginUsed);
   const marginLevel = marginUsed > 0 ? ((currentEquity / marginUsed) * 100).toFixed(1) : '100.0';
@@ -180,7 +278,8 @@ export function TradingDashboard({
 
   // Real-Market Live Price Stream & Order Settlement Engine
   // Simulates institutional market price ticks with asset-specific volatility
-  // P&L is calculated strictly according to live price vs entry price
+  // Automatically settles positions when Take Profit (TP) or Stop Loss (SL) is touched,
+  // and updates user balance in real-time in both Cloud Firestore and local storage.
   useEffect(() => {
     const timer = setInterval(() => {
       // 1. Tick live market quotes
@@ -213,7 +312,7 @@ export function TradingDashboard({
         setSelectedAsset(updatedSelected);
       }
 
-      // 2. Revalue open positions against live market quotes
+      // 2. Revalue open positions against live market quotes & execute SL / TP triggers
       if (!currentUser?.positions || currentUser.positions.length === 0 || !currentUser?.email) {
         return;
       }
@@ -221,8 +320,11 @@ export function TradingDashboard({
       const email = currentUser.email;
       let hasChange = false;
       const currentPositions = currentUser.positions;
+      const remainingPositions: TradePosition[] = [];
+      const now = new Date();
+      const closeTimeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      const updatedPositions = currentPositions.map((pos) => {
+      for (const pos of currentPositions) {
         // Find corresponding asset quote
         const matched = newAssetList.find(
           (a) => a.symbol === pos.symbol || a.name === pos.assetName
@@ -236,60 +338,102 @@ export function TradingDashboard({
         const priceDiff = pos.side === 'buy' ? livePrice - pos.entryPrice : pos.entryPrice - livePrice;
         const livePnl = +(priceDiff * multiplier * pos.lotSize).toFixed(2);
 
+        // Parse TP and SL with regex cleansing to avoid NaN
+        const tpVal = pos.tp ? parseFloat(pos.tp.replace(/[^\d.-]/g, '')) : NaN;
+        const slVal = pos.sl ? parseFloat(pos.sl.replace(/[^\d.-]/g, '')) : NaN;
+
         // Check TP Trigger (Take Profit)
-        if (pos.tp) {
-          const tpVal = parseFloat(pos.tp);
-          if (!isNaN(tpVal)) {
-            const hitTp =
-              (pos.side === 'buy' && livePrice >= tpVal) ||
-              (pos.side === 'sell' && livePrice <= tpVal);
-            if (hitTp) {
-              StorageService.closePosition(email, pos.id);
-              setTradeNotification(
-                `Take Profit triggered for ${pos.symbol}! Position settled with +$${livePnl.toFixed(2)} USD.`
-              );
-              setTimeout(() => setTradeNotification(null), 4000);
-              return pos;
-            }
-          }
+        let hitTp = false;
+        if (!isNaN(tpVal)) {
+          hitTp =
+            (pos.side === 'buy' && livePrice >= tpVal) ||
+            (pos.side === 'sell' && livePrice <= tpVal);
         }
 
         // Check SL Trigger (Stop Loss)
-        if (pos.sl) {
-          const slVal = parseFloat(pos.sl);
-          if (!isNaN(slVal)) {
-            const hitSl =
-              (pos.side === 'buy' && livePrice <= slVal) ||
-              (pos.side === 'sell' && livePrice >= slVal);
-            if (hitSl) {
-              StorageService.closePosition(email, pos.id);
-              setTradeNotification(
-                `Stop Loss executed for ${pos.symbol}. Position closed at market price ($${livePnl.toFixed(2)} USD).`
-              );
-              setTimeout(() => setTradeNotification(null), 4000);
-              return pos;
-            }
+        let hitSl = false;
+        if (!isNaN(slVal) && !hitTp) {
+          hitSl =
+            (pos.side === 'buy' && livePrice <= slVal) ||
+            (pos.side === 'sell' && livePrice >= slVal);
+        }
+
+        if (hitTp || hitSl) {
+          hasChange = true;
+          const reason = hitTp ? 'tp' : 'sl';
+          const targetStr = hitTp ? pos.tp : pos.sl;
+          const parsedTarget = targetStr ? parseFloat(targetStr.replace(/[^\d.-]/g, '')) : NaN;
+          const exitPrice = !isNaN(parsedTarget) ? parsedTarget : livePrice;
+          const settledDiff = pos.side === 'buy' ? exitPrice - pos.entryPrice : pos.entryPrice - exitPrice;
+          const finalPnl = +(settledDiff * multiplier * pos.lotSize).toFixed(2);
+
+          // Play trigger sound
+          playTradeSound(hitTp ? 'tp' : 'sl');
+
+          // Close position in persistent storage and Cloud Firestore, updating balance in live time!
+          const updatedUser = StorageService.closePosition(email, pos.id, exitPrice, finalPnl, reason);
+          if (updatedUser && onUserUpdated) {
+            onUserUpdated(updatedUser);
           }
+
+          // Add to trade history state
+          const closedRecord: TradePosition = {
+            ...pos,
+            status: 'closed',
+            closeTime: closeTimeStr,
+            closePrice: exitPrice,
+            finalPnl,
+            closeReason: reason,
+            closedAt: now.toISOString(),
+          };
+          setTradeHistory((prev) => [closedRecord, ...prev.filter((t) => t.id !== pos.id)]);
+
+          const posMode = pos.accountType || currentUser?.accountType || accountMode;
+          const newBal = posMode === 'live'
+            ? (updatedUser?.liveEquity ?? currentEquity + finalPnl)
+            : (updatedUser?.demoEquity ?? currentEquity + finalPnl);
+
+          const isSmall = exitPrice < 10;
+          if (hitTp) {
+            setTradeNotification(
+              `🎯 Take Profit Triggered! ${pos.side.toUpperCase()} ${pos.symbol} closed at $${exitPrice.toLocaleString(undefined, { minimumFractionDigits: isSmall ? 4 : 2 })} (+ $${finalPnl >= 0 ? '+' : ''}${finalPnl.toFixed(2)} USD). Live Balance updated: $${newBal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD!`
+            );
+          } else {
+            setTradeNotification(
+              `🛡️ Stop Loss Triggered! ${pos.side.toUpperCase()} ${pos.symbol} closed at $${exitPrice.toLocaleString(undefined, { minimumFractionDigits: isSmall ? 4 : 2 })} ($${finalPnl >= 0 ? '+' : ''}${finalPnl.toFixed(2)} USD). Live Balance updated: $${newBal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD!`
+            );
+          }
+          setTimeout(() => setTradeNotification(null), 5000);
+          continue; // Successfully closed, remove from open positions!
         }
 
         if (livePrice !== pos.currentPrice || livePnl !== pos.pnl) {
           hasChange = true;
-          return {
+          remainingPositions.push({
             ...pos,
             currentPrice: livePrice,
             pnl: livePnl,
-          };
+          });
+        } else {
+          remainingPositions.push(pos);
         }
-        return pos;
-      });
+      }
 
-      if (hasChange) {
-        const updatedUser = StorageService.updatePositions(email, updatedPositions);
+      if (hasChange && remainingPositions.length !== currentPositions.length) {
+        // If positions closed, update remaining positions' prices too
+        if (remainingPositions.length > 0) {
+          const updatedUser = StorageService.updatePositions(email, remainingPositions);
+          if (updatedUser && onUserUpdated) {
+            onUserUpdated(updatedUser);
+          }
+        }
+      } else if (hasChange) {
+        const updatedUser = StorageService.updatePositions(email, remainingPositions);
         if (updatedUser && onUserUpdated) {
           onUserUpdated(updatedUser);
         }
       }
-    }, 1400);
+    }, 800);
 
     return () => clearInterval(timer);
   }, [currentUser?.positions, currentUser?.email, selectedAsset.symbol, onUserUpdated]);
@@ -305,6 +449,7 @@ export function TradingDashboard({
   }
 
   function handleLotAdjust(delta: number) {
+    playTradeSound('click');
     setLotSize((prev) => {
       const current = parseFloat(prev) || 0.1;
       const next = Math.max(0.01, +(current + delta).toFixed(2));
@@ -312,9 +457,10 @@ export function TradingDashboard({
     });
   }
 
-  // CREATE Operation: Save new trade directly to Firestore 'trades' collection and storage
+  // CREATE Operation: Instant optimistic execution with High Leverage
   async function handleExecuteTrade(side: 'buy' | 'sell') {
-    const parsedLot = parseFloat(lotSize) || 0.1;
+    setIsExecuting(true);
+    const parsedLot = Math.max(0.01, parseFloat(lotSize) || 0.1);
     const now = new Date();
     const expiry = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
@@ -331,11 +477,13 @@ export function TradingDashboard({
       assetName: selectedAsset.name,
       side,
       lotSize: parsedLot,
+      leverage, // High leverage attached to trade!
+      accountType: currentUser?.accountType || accountMode,
       entryPrice: entry,
       currentPrice: entry,
       tp: tp.trim() || undefined,
       sl: sl.trim() || undefined,
-      pnl: Math.min(-0.15, initialSpreadCost),
+      pnl: Math.min(-0.10, initialSpreadCost),
       openTime: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       duration: tradeDuration || '1 Day (24h)',
       expiryDate:
@@ -348,50 +496,41 @@ export function TradingDashboard({
       userId: currentUser?.uid || currentUser?.id,
     };
 
-    // Save directly to Firestore 'trades' collection
-    if (currentUser?.email) {
-      try {
-        const tradeRef = doc(db, 'trades', newPosition.id);
-        await setDoc(tradeRef, {
-          ...newPosition,
-          accountType: currentUser.accountType || accountMode,
-        });
-      } catch (err) {
-        console.error('Firestore save trade error:', err);
-      }
+    // Instant audio feedback
+    playTradeSound('execute');
 
+    // Optimistic instant state update (0ms UI latency!)
+    if (currentUser?.email) {
       const updated = StorageService.addPosition(currentUser.email, newPosition);
       if (updated && onUserUpdated) onUserUpdated(updated);
+
+      // Async background save to Firestore 'trades' collection
+      const tradeRef = doc(db, 'trades', newPosition.id);
+      setDoc(tradeRef, {
+        ...newPosition,
+        accountType: currentUser.accountType || accountMode,
+      }).catch((err) => console.error('Firestore save trade error:', err));
     }
 
-    const message = `Market Order Executed: ${side.toUpperCase()} ${parsedLot} Lot(s) ${selectedAsset.name} @ $${entry.toLocaleString(undefined, { minimumFractionDigits: isSmall ? 4 : 2 })}`;
+    setIsExecuting(false);
+    const formattedPrice = entry.toLocaleString(undefined, { minimumFractionDigits: isSmall ? 4 : 2 });
+    const message = `🚀 Order Executed: ${side.toUpperCase()} ${parsedLot} Lot(s) ${selectedAsset.name} @ $${formattedPrice} · 1:${leverage} Leverage${tp ? ` · TP: $${tp}` : ''}${sl ? ` · SL: $${sl}` : ''}`;
     setTradeNotification(message);
     setTimeout(() => {
       setTradeNotification(null);
-    }, 3500);
+    }, 4500);
   }
 
   // UPDATE Operation: Update trade in Firestore 'trades' collection to 'closed'
   async function handleClosePosition(posId: string) {
     if (!currentUser?.email) return;
 
+    playTradeSound('click');
     const posToClose = positions.find((p) => p.id === posId);
     const now = new Date();
     const closeTimeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    // Update in Firestore 'trades' collection
-    try {
-      const tradeRef = doc(db, 'trades', posId);
-      await updateDoc(tradeRef, {
-        status: 'closed',
-        closeTime: closeTimeStr,
-        closedAt: now.toISOString(),
-        closePrice: posToClose?.currentPrice || selectedAsset.price,
-        finalPnl: posToClose?.pnl || 0,
-      });
-    } catch (err) {
-      console.warn('Firestore update trade close error:', err);
-    }
+    const currentPrice = posToClose?.currentPrice || selectedAsset.price;
+    const finalPnl = posToClose?.pnl || 0;
 
     // Add to local trade history state immediately
     if (posToClose) {
@@ -399,17 +538,24 @@ export function TradingDashboard({
         ...posToClose,
         status: 'closed',
         closeTime: closeTimeStr,
-        closePrice: posToClose.currentPrice,
-        finalPnl: posToClose.pnl,
+        closePrice: currentPrice,
+        finalPnl,
+        closeReason: 'manual',
         closedAt: now.toISOString(),
       };
       setTradeHistory((prev) => [closedRecord, ...prev.filter((t) => t.id !== posId)]);
     }
 
-    const updated = StorageService.closePosition(currentUser.email, posId);
+    // Close in StorageService, which updates live balance and Firestore
+    const updated = StorageService.closePosition(currentUser.email, posId, currentPrice, finalPnl, 'manual');
     if (updated && onUserUpdated) onUserUpdated(updated);
-    setTradeNotification('Position closed at market price and recorded in trade history.');
-    setTimeout(() => setTradeNotification(null), 2500);
+
+    const posMode = posToClose?.accountType || currentUser.accountType || accountMode;
+    const newBal = posMode === 'live' ? updated?.liveEquity : updated?.demoEquity;
+    setTradeNotification(
+      `✅ Position Closed: ${posToClose?.side.toUpperCase()} ${posToClose?.symbol} @ $${currentPrice.toLocaleString()} (${finalPnl >= 0 ? '+' : ''}$${finalPnl.toFixed(2)} USD). Live Balance updated: $${newBal?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD!`
+    );
+    setTimeout(() => setTradeNotification(null), 4500);
   }
 
   // DELETE Operation: Delete trade record from Firestore 'trades' collection
@@ -560,20 +706,49 @@ export function TradingDashboard({
         <div
           className="fade-in"
           style={{
-            background: 'var(--accent)',
+            background: tradeNotification.includes('Take Profit') || tradeNotification.includes('🎯')
+              ? 'linear-gradient(135deg, #059669, #10b981)'
+              : tradeNotification.includes('Stop Loss') || tradeNotification.includes('🛡️')
+              ? 'linear-gradient(135deg, #b91c1c, #ef4444)'
+              : tradeNotification.includes('Order Executed') || tradeNotification.includes('🚀')
+              ? 'linear-gradient(135deg, #1d4ed8, #2563eb)'
+              : 'linear-gradient(135deg, #0f766e, #0d9488)',
             color: '#fff',
-            padding: '10px 20px',
+            padding: '11px 20px',
             textAlign: 'center',
-            fontSize: 14,
-            fontWeight: 500,
+            fontSize: 13,
+            fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 8,
+            gap: 10,
+            boxShadow: '0 4px 14px rgba(0, 0, 0, 0.16)',
+            position: 'sticky',
+            top: 0,
+            zIndex: 100,
           }}
         >
-          <CheckCircle2 size={16} />
-          <span>{tradeNotification}</span>
+          <CheckCircle2 size={17} />
+          <span style={{ letterSpacing: '0.01em' }}>{tradeNotification}</span>
+          <button
+            type="button"
+            onClick={() => setTradeNotification(null)}
+            style={{
+              marginLeft: 12,
+              background: 'rgba(255, 255, 255, 0.2)',
+              border: 'none',
+              borderRadius: '50%',
+              width: 20,
+              height: 20,
+              color: '#fff',
+              fontSize: 12,
+              cursor: 'pointer',
+              display: 'grid',
+              placeItems: 'center',
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -703,7 +878,7 @@ export function TradingDashboard({
             <InteractiveChart asset={selectedAsset} />
 
             <div className="trade-tools">
-              <div className="tool-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="tool-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
                 <div className="tool-type-toggle">
                   <button
                     type="button"
@@ -722,8 +897,67 @@ export function TradingDashboard({
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text2)' }}>
-                  <Clock size={15} />
-                  <span>Trade Duration: <strong>1 Day (24h)</strong></span>
+                  <Clock size={15} color="var(--accent)" />
+                  <span>Execution: <strong>Ultra-Fast Instant Fill</strong></span>
+                </div>
+              </div>
+
+              {/* High Leverage Selector */}
+              <div style={{ margin: '14px 0 12px', background: 'var(--card)', padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Flame size={15} color="#f59e0b" /> High Leverage Suite
+                  </label>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', background: '#fef3c7', padding: '2px 8px', borderRadius: 12 }}>
+                    Active 1:{leverage} {LEVERAGE_OPTIONS.find((o) => o.value === leverage)?.tier || 'High'} · Margin: {LEVERAGE_OPTIONS.find((o) => o.value === leverage)?.marginPct}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {LEVERAGE_OPTIONS.map((levOpt) => (
+                    <button
+                      key={levOpt.value}
+                      type="button"
+                      onClick={() => {
+                        playTradeSound('click');
+                        setLeverage(levOpt.value);
+                      }}
+                      style={{
+                        flex: 1,
+                        minWidth: 54,
+                        padding: '7px 8px',
+                        borderRadius: 8,
+                        border: `1px solid ${leverage === levOpt.value ? 'var(--accent)' : 'var(--border)'}`,
+                        background: leverage === levOpt.value ? 'var(--accent-light)' : 'var(--bg2)',
+                        color: leverage === levOpt.value ? 'var(--accent)' : 'var(--text)',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        transition: 'all 0.18s ease',
+                      }}
+                    >
+                      {levOpt.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text3)', marginTop: 8, flexWrap: 'wrap', gap: 6 }}>
+                  <span>
+                    Est. Required Margin:{' '}
+                    <strong style={{ color: 'var(--text)' }}>
+                      ${((selectedAsset.price * getContractMultiplier(selectedAsset.symbol) * (parseFloat(lotSize) || 0.1)) / leverage).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                    </strong>
+                  </span>
+                  <span>
+                    Max Purchasing Power:{' '}
+                    <strong style={{ color: 'var(--accent)' }}>
+                      ${(bookedBalance * leverage).toLocaleString()} USD
+                    </strong>
+                  </span>
+                  <span>
+                    Free Margin:{' '}
+                    <strong style={{ color: 'var(--text)' }}>
+                      ${freeMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                    </strong>
+                  </span>
                 </div>
               </div>
 
@@ -750,8 +984,10 @@ export function TradingDashboard({
                 </div>
 
                 <div className="tool-field">
-                  <label>Lot Size / Volume</label>
-                  <div className="lot-control">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <label style={{ margin: 0 }}>Lot Size / Volume</label>
+                  </div>
+                  <div className="lot-control" style={{ marginTop: 4 }}>
                     <button type="button" onClick={() => handleLotAdjust(-0.05)}>
                       <Minus size={14} />
                     </button>
@@ -764,92 +1000,321 @@ export function TradingDashboard({
                       <Plus size={14} />
                     </button>
                   </div>
+                  {/* Quick Lot Selector Chips */}
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                    {QUICK_LOTS.map((qLot) => (
+                      <button
+                        key={qLot}
+                        type="button"
+                        onClick={() => {
+                          playTradeSound('click');
+                          setLotSize(qLot);
+                        }}
+                        style={{
+                          flex: 1,
+                          minWidth: 32,
+                          padding: '3px 4px',
+                          borderRadius: 4,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          border: `1px solid ${lotSize === qLot ? 'var(--accent)' : 'var(--border)'}`,
+                          background: lotSize === qLot ? 'var(--accent-light)' : 'var(--bg2)',
+                          color: lotSize === qLot ? 'var(--accent)' : 'var(--text2)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {qLot}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="tool-field">
-                  <label>Take Profit (TP)</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <label style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Target size={12} color="#10b981" /> Take Profit (TP)
+                    </label>
+                    <div style={{ display: 'flex', gap: 3 }}>
+                      {[0.5, 1, 2, 5, 10].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => {
+                            playTradeSound('click');
+                            setTp((selectedAsset.price * (1 + pct / 100)).toFixed(selectedAsset.price < 10 ? 4 : 2));
+                          }}
+                          style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg2)', cursor: 'pointer', color: '#10b981', fontWeight: 600 }}
+                        >
+                          +{pct}%
+                        </button>
+                      ))}
+                      {tp && (
+                        <button
+                          type="button"
+                          onClick={() => setTp('')}
+                          style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text3)' }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   <input
                     type="text"
                     value={tp}
                     onChange={(e) => setTp(e.target.value)}
-                    placeholder="Auto / Price"
+                    placeholder={`e.g. ${(selectedAsset.price * 1.02).toFixed(selectedAsset.price < 10 ? 4 : 2)}`}
                     className="tool-input"
                   />
                 </div>
 
                 <div className="tool-field">
-                  <label>Stop Loss (SL)</label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <label style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <ShieldAlert size={12} color="#ef4444" /> Stop Loss (SL)
+                    </label>
+                    <div style={{ display: 'flex', gap: 3 }}>
+                      {[0.5, 1, 2, 5, 10].map((pct) => (
+                        <button
+                          key={pct}
+                          type="button"
+                          onClick={() => {
+                            playTradeSound('click');
+                            setSl((selectedAsset.price * (1 - pct / 100)).toFixed(selectedAsset.price < 10 ? 4 : 2));
+                          }}
+                          style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, border: '1px solid var(--border)', background: 'var(--bg2)', cursor: 'pointer', color: '#ef4444', fontWeight: 600 }}
+                        >
+                          -{pct}%
+                        </button>
+                      ))}
+                      {sl && (
+                        <button
+                          type="button"
+                          onClick={() => setSl('')}
+                          style={{ fontSize: 10, padding: '2px 4px', borderRadius: 4, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text3)' }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   <input
                     type="text"
                     value={sl}
                     onChange={(e) => setSl(e.target.value)}
-                    placeholder="Auto / Price"
+                    placeholder={`e.g. ${(selectedAsset.price * 0.98).toFixed(selectedAsset.price < 10 ? 4 : 2)}`}
                     className="tool-input"
                   />
                 </div>
               </div>
 
-              <div className="trade-actions">
+              {/* Real-Time Live Projected Target Profit & Loss Preview */}
+              {(tp || sl) && (
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    marginTop: 10,
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: 'var(--bg2)',
+                    border: '1px solid var(--border)',
+                    fontSize: 12,
+                  }}
+                >
+                  {tp && (
+                    <span style={{ color: '#10b981', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <Target size={13} />
+                      Target Profit if TP Touched: +${Math.abs(((parseFloat(tp) || selectedAsset.price) - selectedAsset.price) * getContractMultiplier(selectedAsset.symbol) * (parseFloat(lotSize) || 0.1)).toFixed(2)} USD
+                    </span>
+                  )}
+                  {sl && (
+                    <span style={{ color: '#ef4444', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <ShieldAlert size={13} />
+                      Stop Risk if SL Touched: -${Math.abs((selectedAsset.price - (parseFloat(sl) || selectedAsset.price)) * getContractMultiplier(selectedAsset.symbol) * (parseFloat(lotSize) || 0.1)).toFixed(2)} USD
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className="trade-actions" style={{ marginTop: 12 }}>
                 <button
                   className="trade-btn buy"
                   type="button"
+                  disabled={isExecuting}
                   onClick={() => handleExecuteTrade('buy')}
                 >
-                  Buy {selectedAsset.symbol} (1 Day)
+                  <ArrowUp size={18} /> Buy {selectedAsset.symbol} · 1:{leverage}
                 </button>
                 <button
                   className="trade-btn sell"
                   type="button"
+                  disabled={isExecuting}
                   onClick={() => handleExecuteTrade('sell')}
                 >
-                  Sell {selectedAsset.symbol} (1 Day)
+                  <ArrowDown size={18} /> Sell {selectedAsset.symbol} · 1:{leverage}
                 </button>
               </div>
+
+              {/* Active Positions on this specific instrument */}
+              {positions.filter((p) => p.symbol === selectedAsset.symbol).length > 0 && (
+                <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>
+                      Active Trades on {selectedAsset.symbol} ({positions.filter((p) => p.symbol === selectedAsset.symbol).length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('positions')}
+                      style={{ fontSize: 11, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                    >
+                      View All in Positions Tab →
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {positions
+                      .filter((p) => p.symbol === selectedAsset.symbol)
+                      .map((pos) => {
+                        const isProfitable = pos.pnl >= 0;
+                        return (
+                          <div
+                            key={pos.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              background: 'var(--bg2)',
+                              padding: '8px 12px',
+                              borderRadius: 8,
+                              border: '1px solid var(--border)',
+                              fontSize: 12,
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span
+                                style={{
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  fontWeight: 700,
+                                  fontSize: 10,
+                                  background: pos.side === 'buy' ? '#16a34a20' : '#dc262620',
+                                  color: pos.side === 'buy' ? '#16a34a' : '#dc2626',
+                                }}
+                              >
+                                {pos.side.toUpperCase()}
+                              </span>
+                              <span style={{ fontWeight: 600 }}>{pos.lotSize} Lots</span>
+                              <span style={{ color: 'var(--text3)' }}>@ ${pos.entryPrice.toLocaleString()}</span>
+                              {pos.tp && <span style={{ color: '#10b981', fontSize: 11 }}>TP: ${pos.tp}</span>}
+                              {pos.sl && <span style={{ color: '#ef4444', fontSize: 11 }}>SL: ${pos.sl}</span>}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <span style={{ fontWeight: 700, color: isProfitable ? '#16a34a' : '#dc2626' }}>
+                                {isProfitable ? '+' : ''}${pos.pnl.toFixed(2)} USD
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleClosePosition(pos.id)}
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: 6,
+                                  background: '#ef4444',
+                                  color: '#fff',
+                                  border: 'none',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                Close &amp; Settle
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="trading-sidebar">
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontSize: 13, fontWeight: 700 }}>
-              OTC Trading Instruments
+            <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>Live Market Assets</span>
+                <span style={{ fontSize: 11, color: 'var(--text3)' }}>{otcAssets.length} Instruments</span>
+              </div>
+              <div style={{ position: 'relative' }}>
+                <Search size={14} style={{ position: 'absolute', left: 10, top: 9, color: 'var(--text3)' }} />
+                <input
+                  type="text"
+                  value={marketSearch}
+                  onChange={(e) => setMarketSearch(e.target.value)}
+                  placeholder="Search assets (BTC, Gold, EUR...)"
+                  style={{
+                    width: '100%',
+                    padding: '6px 10px 6px 30px',
+                    borderRadius: 6,
+                    border: '1px solid var(--border)',
+                    background: 'var(--input-bg)',
+                    color: 'var(--text)',
+                    fontSize: 12,
+                    outline: 'none',
+                  }}
+                />
+              </div>
             </div>
 
             <div className="asset-list">
-              {otcAssets.map((asset) => (
-                <button
-                  type="button"
-                  key={asset.symbol}
-                  className={
-                    selectedAsset.symbol === asset.symbol
-                      ? 'asset-row selected'
-                      : 'asset-row'
-                  }
-                  onClick={() => {
-                    setSelectedAsset(asset);
-                    setActiveTab('chart');
-                  }}
-                >
-                  <div className="asset-info">
-                    <span className="asset-name">{asset.name}</span>
-                    <span className="asset-symbol">{asset.symbol}</span>
-                  </div>
-                  <SparklineChart positive={asset.change >= 0} />
-                  <div className="asset-price-col">
-                    <span className="asset-price">
-                      ${asset.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </span>
-                    <span
-                      className={
-                        asset.change >= 0
-                          ? 'asset-change positive'
-                          : 'asset-change negative'
-                      }
-                    >
-                      {asset.change >= 0 ? '+' : ''}
-                      {asset.change}%
-                    </span>
-                  </div>
-                </button>
-              ))}
+              {otcAssets
+                .filter((asset) => {
+                  if (!marketSearch.trim()) return true;
+                  const query = marketSearch.toLowerCase();
+                  return (
+                    asset.name.toLowerCase().includes(query) ||
+                    asset.symbol.toLowerCase().includes(query) ||
+                    asset.category.toLowerCase().includes(query)
+                  );
+                })
+                .map((asset) => (
+                  <button
+                    type="button"
+                    key={asset.symbol}
+                    className={
+                      selectedAsset.symbol === asset.symbol
+                        ? 'asset-row selected'
+                        : 'asset-row'
+                    }
+                    onClick={() => {
+                      setSelectedAsset(asset);
+                      setActiveTab('chart');
+                    }}
+                  >
+                    <div className="asset-info">
+                      <span className="asset-name">{asset.name}</span>
+                      <span className="asset-symbol">{asset.symbol}</span>
+                    </div>
+                    <SparklineChart positive={asset.change >= 0} />
+                    <div className="asset-price-col">
+                      <span className="asset-price">
+                        ${asset.price.toLocaleString(undefined, { minimumFractionDigits: asset.price < 10 ? 4 : 2 })}
+                      </span>
+                      <span
+                        className={
+                          asset.change >= 0
+                            ? 'asset-change positive'
+                            : 'asset-change negative'
+                        }
+                      >
+                        {asset.change >= 0 ? '+' : ''}
+                        {asset.change}%
+                      </span>
+                    </div>
+                  </button>
+                ))}
             </div>
           </div>
         </div>
@@ -858,55 +1323,121 @@ export function TradingDashboard({
       {activeTab === 'markets' && (
         <div className="markets-view">
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
-            <h3 style={{ margin: 0, fontSize: 16 }}>Available OTC Assets (6 High-Liquidity Contracts)</h3>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text2)' }}>
-              Trade Gold, Silver, Oil, GBP/USD, Bitcoin, and Apple on 1-day contract expirations.
-            </p>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, color: 'var(--text)' }}>Live Global Markets</h3>
+                <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text2)' }}>
+                  Institutional real-time liquidity across Crypto, Forex, Commodities, Indices, and Stocks.
+                </p>
+              </div>
+
+              {/* Search Bar */}
+              <div style={{ position: 'relative', width: 'min(100%, 280px)' }}>
+                <Search size={16} style={{ position: 'absolute', left: 12, top: 11, color: 'var(--text3)' }} />
+                <input
+                  type="text"
+                  value={marketSearch}
+                  onChange={(e) => setMarketSearch(e.target.value)}
+                  placeholder="Search 100+ live assets..."
+                  style={{
+                    width: '100%',
+                    height: 38,
+                    padding: '0 14px 0 36px',
+                    borderRadius: 20,
+                    border: '1px solid var(--border)',
+                    background: 'var(--card)',
+                    color: 'var(--text)',
+                    fontSize: 13,
+                    outline: 'none',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Category Filter Pills */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 14, overflowX: 'auto', paddingBottom: 4 }}>
+              {MARKET_CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setMarketCategory(cat)}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 20,
+                    border: `1px solid ${marketCategory === cat ? 'var(--accent)' : 'var(--border)'}`,
+                    background: marketCategory === cat ? 'var(--accent)' : 'var(--card)',
+                    color: marketCategory === cat ? '#fff' : 'var(--text2)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="markets-header-row">
-            <span className="mh-col mh-asset">Asset</span>
-            <span className="mh-col mh-price">Current Price</span>
+            <span className="mh-col mh-asset">Asset / Market</span>
+            <span className="mh-col mh-price">Live Price</span>
             <span className="mh-col mh-change">24h Change</span>
             <span className="mh-col mh-chart">Trend</span>
             <span className="mh-col mh-action">Action</span>
           </div>
 
           <div className="markets-list">
-            {otcAssets.map((asset) => (
-              <div className="market-row" key={asset.symbol}>
-                <div className="mh-col mh-asset">
-                  <span className="m-name">{asset.name}</span>
-                  <span className="m-symbol">{asset.symbol}</span>
-                </div>
-                <span className="mh-col mh-price m-price">
-                  ${asset.price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </span>
-                <span
-                  className={`mh-col mh-change m-change ${
-                    asset.change >= 0 ? 'positive' : 'negative'
-                  }`}
-                >
-                  {asset.change >= 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-                  {Math.abs(asset.change)}%
-                </span>
-                <div className="mh-col mh-chart">
-                  <SparklineChart positive={asset.change >= 0} />
-                </div>
-                <div className="mh-col mh-action">
-                  <button
-                    className="m-trade-btn"
-                    type="button"
-                    onClick={() => {
-                      setSelectedAsset(asset);
-                      setActiveTab('chart');
-                    }}
+            {otcAssets
+              .filter((asset) => {
+                if (marketCategory !== 'All Markets' && asset.category !== marketCategory) {
+                  return false;
+                }
+                if (!marketSearch.trim()) return true;
+                const query = marketSearch.toLowerCase();
+                return (
+                  asset.name.toLowerCase().includes(query) ||
+                  asset.symbol.toLowerCase().includes(query) ||
+                  asset.category.toLowerCase().includes(query)
+                );
+              })
+              .map((asset) => (
+                <div className="market-row" key={asset.symbol}>
+                  <div className="mh-col mh-asset">
+                    <span className="m-name">{asset.name}</span>
+                    <span className="m-symbol">
+                      {asset.symbol} · <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{asset.category}</span>
+                    </span>
+                  </div>
+                  <span className="mh-col mh-price m-price">
+                    ${asset.price.toLocaleString(undefined, { minimumFractionDigits: asset.price < 10 ? 4 : 2 })}
+                  </span>
+                  <span
+                    className={`mh-col mh-change m-change ${
+                      asset.change >= 0 ? 'positive' : 'negative'
+                    }`}
                   >
-                    Trade 1-Day <ChevronRight size={14} />
-                  </button>
+                    {asset.change >= 0 ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
+                    {Math.abs(asset.change)}%
+                  </span>
+                  <div className="mh-col mh-chart">
+                    <SparklineChart positive={asset.change >= 0} />
+                  </div>
+                  <div className="mh-col mh-action">
+                    <button
+                      className="m-trade-btn"
+                      type="button"
+                      onClick={() => {
+                        setSelectedAsset(asset);
+                        setActiveTab('chart');
+                      }}
+                    >
+                      Trade 1:{leverage} <ChevronRight size={14} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
           </div>
         </div>
       )}

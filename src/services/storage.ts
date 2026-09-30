@@ -107,6 +107,40 @@ export const StorageService = {
     safeRemoveItem(SESSION_KEY);
   },
 
+  hasCompletedPersonalDetails(userOrEmail?: UserAccount | string | null): boolean {
+    const user =
+      typeof userOrEmail === 'string'
+        ? this.findUserByEmail(userOrEmail)
+        : (userOrEmail || this.getCurrentUser());
+    if (!user) return false;
+    return !!(
+      user.personalDetailsCompleted ||
+      (user.personalDetails && (user.personalDetails.address || user.personalDetails.city || user.personalDetails.dob)) ||
+      user.stage === 'trading' ||
+      user.isLiveAccount ||
+      user.isVerified
+    );
+  },
+
+  hasCompletedQuestionnaire(userOrEmail?: UserAccount | string | null): boolean {
+    const user =
+      typeof userOrEmail === 'string'
+        ? this.findUserByEmail(userOrEmail)
+        : (userOrEmail || this.getCurrentUser());
+    if (!user) return false;
+    return !!(
+      user.questionnaireCompleted ||
+      (user.questionnaire && (user.questionnaire.profession || user.questionnaire.age || user.questionnaire.notUsCitizen || user.questionnaire.tin)) ||
+      user.stage === 'trading' ||
+      user.isLiveAccount ||
+      user.isVerified
+    );
+  },
+
+  hasCompletedOnboarding(userOrEmail?: UserAccount | string | null): boolean {
+    return this.hasCompletedPersonalDetails(userOrEmail) && this.hasCompletedQuestionnaire(userOrEmail);
+  },
+
   // Fetch the definitive source-of-truth from Cloud Firestore
   async fetchFreshUserFromFirebase(email?: string): Promise<UserAccount | null> {
     const targetEmail = email || safeGetItem(SESSION_KEY);
@@ -301,6 +335,7 @@ export const StorageService = {
   savePersonalDetails(email: string, details: PersonalDetails): UserAccount | null {
     return this.updateUserByEmail(email, {
       personalDetails: details,
+      personalDetailsCompleted: true,
       stage: 'payments',
     });
   },
@@ -342,13 +377,19 @@ export const StorageService = {
   saveQuestionnaire(email: string, data: QuestionnaireData): UserAccount | null {
     return this.updateUserByEmail(email, {
       questionnaire: data,
+      questionnaireCompleted: true,
       isVerified: true,
-      stage: 'all-done',
+      isLiveAccount: true,
+      stage: 'trading',
     });
   },
 
   completeAllDone(email: string): UserAccount | null {
     return this.updateUserByEmail(email, {
+      personalDetailsCompleted: true,
+      questionnaireCompleted: true,
+      isVerified: true,
+      isLiveAccount: true,
       stage: 'trading',
     });
   },
@@ -388,16 +429,35 @@ export const StorageService = {
     return this.updateUserByEmail(email, { positions });
   },
 
-  closePosition(email: string, positionId: string): UserAccount | null {
+  closePosition(
+    email: string,
+    positionId: string,
+    customClosePrice?: number,
+    customPnl?: number,
+    reason?: 'manual' | 'tp' | 'sl'
+  ): UserAccount | null {
     const user = this.findUserByEmail(email);
     if (!user) return null;
     const pos = user.positions.find((p) => p.id === positionId);
     const positions = user.positions.filter((p) => p.id !== positionId);
     const docKey = getUserDocKey(email);
 
-    // Update equity with closed position PnL
-    const equityKey = user.accountType === 'live' ? 'liveEquity' : 'demoEquity';
-    const newEquity = Math.max(0, +(user[equityKey] + (pos?.pnl || 0)).toFixed(2));
+    const closePrice = customClosePrice !== undefined ? customClosePrice : (pos?.currentPrice || 0);
+    const finalPnl = customPnl !== undefined ? customPnl : (pos?.pnl || 0);
+
+    // Determine account mode (live vs demo) from the position itself or user account
+    const posAccountType = pos?.accountType || user.accountType || (user.isLiveAccount ? 'live' : 'demo');
+    const equityKey = posAccountType === 'live' ? 'liveEquity' : 'demoEquity';
+    const currentEquityVal =
+      typeof user[equityKey] === 'number' && !isNaN(user[equityKey])
+        ? user[equityKey]
+        : posAccountType === 'live'
+        ? 250
+        : 10000;
+    const newEquity = Math.max(0, +(currentEquityVal + finalPnl).toFixed(2));
+
+    const now = new Date();
+    const closeTimeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
     // Update root trades collection and user subcollection in Firestore
     try {
@@ -406,10 +466,12 @@ export const StorageService = {
         rootTradeRef,
         {
           status: 'closed',
-          closeTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          closePrice: pos?.currentPrice || 0,
-          finalPnl: pos?.pnl || 0,
-          closedAt: new Date().toISOString(),
+          closeTime: closeTimeStr,
+          closePrice,
+          finalPnl,
+          closeReason: reason || 'manual',
+          closedAt: now.toISOString(),
+          accountType: posAccountType,
         },
         { merge: true }
       ).catch((err) => console.warn('Root trade close error:', err));
@@ -419,10 +481,12 @@ export const StorageService = {
         tradeRef,
         {
           status: 'closed',
-          closeTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          closePrice: pos?.currentPrice || 0,
-          finalPnl: pos?.pnl || 0,
-          closedAt: new Date().toISOString(),
+          closeTime: closeTimeStr,
+          closePrice,
+          finalPnl,
+          closeReason: reason || 'manual',
+          closedAt: now.toISOString(),
+          accountType: posAccountType,
         },
         { merge: true }
       ).catch((err) => console.warn('Trade close subcollection error:', err));

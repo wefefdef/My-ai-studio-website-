@@ -26,6 +26,18 @@ export function QuestionnairePage({
   const totalQuestions = QUESTIONS.length + 1; // 6 questions + 1 TIN identification
   const progressPercent = ((step + 1) / totalQuestions) * 100;
 
+  // If questionnaire was already completed once for this user, never ever show again
+  React.useEffect(() => {
+    if (
+      currentUser?.questionnaire ||
+      currentUser?.stage === 'trading' ||
+      currentUser?.isVerified ||
+      currentUser?.isLiveAccount
+    ) {
+      onComplete();
+    }
+  }, [currentUser, onComplete]);
+
   function handleNext() {
     setDirection('forward');
     if (step < totalQuestions - 1) {

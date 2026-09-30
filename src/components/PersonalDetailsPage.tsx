@@ -188,6 +188,16 @@ export function PersonalDetailsPage({
   const [noticeDismissed, setNoticeDismissed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // If personal details were already filled once for this user, never ever show again
+  useEffect(() => {
+    if (
+      prevDetails &&
+      (prevDetails.address || prevDetails.dob || currentUser?.stage === 'trading' || currentUser?.isLiveAccount || currentUser?.isVerified)
+    ) {
+      onProceed();
+    }
+  }, [prevDetails, currentUser, onProceed]);
+
   function handleQuickFill() {
     setAddress('12 Financial Crescent');
     setCity('Victoria Island');

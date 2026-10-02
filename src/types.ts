@@ -55,6 +55,20 @@ export interface PaymentMethod {
   updatedAt?: string;
 }
 
+export interface InvitationRecord {
+  token: string;
+  durationStr: string;
+  durationMs: number;
+  createdAt: string;
+  createdTimestamp: number;
+  expiresAt: number;
+  expiresAtIso: string;
+  status: 'active' | 'expired' | 'revoked' | 'used';
+  usedCount: number;
+  associatedUserEmail?: string | null;
+  lastAccessedAt?: string | null;
+}
+
 export interface PersonalDetails {
   address: string;
   city: string;

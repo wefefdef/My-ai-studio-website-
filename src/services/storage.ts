@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, updateDoc, collection, addDoc, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, addDoc, getDocs, increment } from 'firebase/firestore';
 import { db } from './firebase';
 import {
   UserAccount,
@@ -55,22 +55,51 @@ export function getUserDocKey(email: string): string {
   return normalizeEmail(email).replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+/**
+ * Deeply sanitizes an object or array by removing any properties with value `undefined`.
+ * Firestore strictly rejects `undefined` values and throws:
+ * "Function setDoc() called with invalid data. Unsupported field value: undefined"
+ */
+export function removeUndefinedFields<T>(val: T): T {
+  if (val === undefined || val === null) {
+    return null as any;
+  }
+  if (Array.isArray(val)) {
+    return val.map((item) => removeUndefinedFields(item)) as any;
+  }
+  if (typeof val === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (v !== undefined) {
+        cleaned[k] = removeUndefinedFields(v);
+      }
+    }
+    return cleaned as T;
+  }
+  return val;
+}
+
+// In-Memory Permanent Account Store (retained throughout browser runtime & fallback)
+const memoryUsersMap: Record<string, UserAccount> = {};
+
 // Local cache helpers for instant synchronous UI render
 function getLocalDb(): Record<string, UserAccount> {
   try {
     const raw = safeGetItem(DB_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return { ...memoryUsersMap, ...parsed };
   } catch {
-    return {};
+    return { ...memoryUsersMap };
   }
 }
 
 function saveLocalDb(dbData: Record<string, UserAccount>): void {
+  // Always update in-memory permanent store
+  Object.assign(memoryUsersMap, dbData);
   try {
     safeSetItem(DB_KEY, JSON.stringify(dbData));
   } catch (err) {
-    console.error('Error saving to local storage cache:', err);
+    console.warn('Error saving to local storage cache, maintained in memory:', err);
   }
 }
 
@@ -215,14 +244,14 @@ export const StorageService = {
       isLiveAccount: false,
       accountType: 'live',
       demoEquity: 10000,
-      liveEquity: 0,
+      liveEquity: 250,
       positions: [],
     };
 
     // 4. Save to Cloud Firestore
     try {
       const userRef = doc(db, 'users', docKey);
-      await setDoc(userRef, newUser);
+      await setDoc(userRef, removeUndefinedFields(newUser));
     } catch (err) {
       console.error('Failed to save new user to Firestore:', err);
     }
@@ -325,7 +354,8 @@ export const StorageService = {
 
     // Asynchronously write to Cloud Firestore
     const userRef = doc(db, 'users', docKey);
-    setDoc(userRef, updated, { merge: true }).catch((err) => {
+    const sanitizedDoc = removeUndefinedFields(updated);
+    setDoc(userRef, sanitizedDoc, { merge: true }).catch((err) => {
       console.error('Failed to sync user updates to Firestore:', err);
     });
 
@@ -359,14 +389,14 @@ export const StorageService = {
     // 2. Persist deposit transaction record in user's deposits subcollection in Firestore
     try {
       const depositRef = doc(db, 'users', docKey, 'deposits', 'DEP-' + Date.now());
-      setDoc(depositRef, {
+      setDoc(depositRef, removeUndefinedFields({
         amount: deposit.amount,
         method: deposit.method,
         status: deposit.status,
         date: deposit.date || new Date().toISOString(),
         reference: 'TX-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
         userEmail: email,
-      }).catch((err) => console.warn('Subcollection deposit save warning:', err));
+      })).catch((err) => console.warn('Subcollection deposit save warning:', err));
     } catch (e) {
       console.warn(e);
     }
@@ -398,26 +428,27 @@ export const StorageService = {
   addPosition(email: string, position: TradePosition): UserAccount | null {
     const user = this.findUserByEmail(email);
     if (!user) return null;
-    const positions = [position, ...(user.positions || [])];
+    const cleanPos = removeUndefinedFields(position);
+    const positions = [cleanPos, ...(user.positions || [])];
     const docKey = getUserDocKey(email);
 
     // Save position to root trades collection and user subcollection
     try {
       const rootTradeRef = doc(db, 'trades', position.id);
-      setDoc(rootTradeRef, {
+      setDoc(rootTradeRef, removeUndefinedFields({
         ...position,
         userEmail: email,
         userId: user.uid || user.id,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      }).catch((err) => console.warn('Root trades collection error:', err));
+      })).catch((err) => console.warn('Root trades collection error:', err));
 
       const tradeRef = doc(db, 'users', docKey, 'trades', position.id);
-      setDoc(tradeRef, {
+      setDoc(tradeRef, removeUndefinedFields({
         ...position,
         userEmail: email,
         updatedAt: new Date().toISOString(),
-      }).catch((err) => console.warn('Trade subcollection error:', err));
+      })).catch((err) => console.warn('Trade subcollection error:', err));
     } catch (e) {
       console.warn(e);
     }
@@ -426,7 +457,7 @@ export const StorageService = {
   },
 
   updatePositions(email: string, positions: TradePosition[]): UserAccount | null {
-    return this.updateUserByEmail(email, { positions });
+    return this.updateUserByEmail(email, { positions: removeUndefinedFields(positions) });
   },
 
   closePosition(
@@ -464,7 +495,7 @@ export const StorageService = {
       const rootTradeRef = doc(db, 'trades', positionId);
       setDoc(
         rootTradeRef,
-        {
+        removeUndefinedFields({
           status: 'closed',
           closeTime: closeTimeStr,
           closePrice,
@@ -472,14 +503,14 @@ export const StorageService = {
           closeReason: reason || 'manual',
           closedAt: now.toISOString(),
           accountType: posAccountType,
-        },
+        }),
         { merge: true }
       ).catch((err) => console.warn('Root trade close error:', err));
 
       const tradeRef = doc(db, 'users', docKey, 'trades', positionId);
       setDoc(
         tradeRef,
-        {
+        removeUndefinedFields({
           status: 'closed',
           closeTime: closeTimeStr,
           closePrice,
@@ -487,16 +518,44 @@ export const StorageService = {
           closeReason: reason || 'manual',
           closedAt: now.toISOString(),
           accountType: posAccountType,
-        },
+        }),
         { merge: true }
       ).catch((err) => console.warn('Trade close subcollection error:', err));
     } catch (e) {
       console.warn(e);
     }
 
-    return this.updateUserByEmail(email, {
+    // Atomic update in Firestore using increment() to prevent race conditions
+    // across concurrent trade executions and settlements on both demo and live account equity!
+    try {
+      const userRef = doc(db, 'users', docKey);
+      updateDoc(userRef, {
+        [equityKey]: increment(finalPnl),
+        positions: removeUndefinedFields(positions),
+      }).catch((err) => {
+        console.warn('Atomic increment failed on Firestore, falling back to setDoc:', err);
+        const cleanUser = removeUndefinedFields({
+          ...user,
+          positions,
+          [equityKey]: newEquity,
+        });
+        setDoc(userRef, cleanUser, { merge: true }).catch((e) => console.error(e));
+      });
+    } catch (err) {
+      console.warn('Atomic increment call error:', err);
+    }
+
+    // Optimistic local cache update
+    const key = normalizeEmail(email);
+    const localDb = getLocalDb();
+    const updatedLocal: UserAccount = {
+      ...user,
       positions,
       [equityKey]: newEquity,
-    });
+    };
+    localDb[key] = updatedLocal;
+    saveLocalDb(localDb);
+
+    return updatedLocal;
   },
 };

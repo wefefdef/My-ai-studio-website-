@@ -16,6 +16,7 @@ import {
 import { BrandMark } from './BrandMark';
 import { Footer } from './Footer';
 import { STATS_ITEMS } from '../data/markets';
+import { OwnerInvitationModal } from './OwnerInvitationModal';
 
 interface LandingPageProps {
   onLogin: () => void;
@@ -90,6 +91,7 @@ const ADVANTAGES = [
 
 export function LandingPage({ onLogin, onStartTrading }: LandingPageProps) {
   const [scrolled, setScrolled] = useState(false);
+  const [showOwnerModal, setShowOwnerModal] = useState(false);
 
   useEffect(() => {
     function handleScroll() {
@@ -353,7 +355,12 @@ export function LandingPage({ onLogin, onStartTrading }: LandingPageProps) {
         </div>
       </section>
 
-      <Footer />
+      <Footer onOpenOwnerAuth={() => setShowOwnerModal(true)} />
+
+      <OwnerInvitationModal
+        isOpen={showOwnerModal}
+        onClose={() => setShowOwnerModal(false)}
+      />
     </div>
   );
 }

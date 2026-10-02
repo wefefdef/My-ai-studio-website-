@@ -35,6 +35,8 @@ import {
   where,
   updateDoc,
   deleteDoc,
+  onSnapshot,
+  increment,
 } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { MarketAsset, UserAccount, TradePosition } from '../types';
@@ -42,7 +44,7 @@ import { MARKET_CATEGORIES, MARKET_ASSETS, OTC_ASSETS, NEWS_HEADLINES } from '..
 import { BrandMark } from './BrandMark';
 import { InteractiveChart } from './InteractiveChart';
 import { SparklineChart } from './SparklineChart';
-import { StorageService } from '../services/storage';
+import { StorageService, removeUndefinedFields, getUserDocKey } from '../services/storage';
 import { playTradeSound } from '../utils/tradeAudio';
 
 const LEVERAGE_OPTIONS = [
@@ -80,6 +82,7 @@ export function TradingDashboard({
   onOpenProfile,
 }: TradingDashboardProps) {
   const [otcAssets, setOtcAssets] = useState<MarketAsset[]>(MARKET_ASSETS);
+  const assetsRef = React.useRef<MarketAsset[]>(MARKET_ASSETS);
   const [selectedAsset, setSelectedAsset] = useState<MarketAsset>(MARKET_ASSETS[0]);
   const [marketCategory, setMarketCategory] = useState<string>('All Markets');
   const [marketSearch, setMarketSearch] = useState<string>('');
@@ -104,14 +107,9 @@ export function TradingDashboard({
     currentUser?.accountType || (currentUser?.isLiveAccount ? 'live' : 'demo')
   );
 
-  const bookedBalance =
-    accountMode === 'live'
-      ? (currentUser?.liveEquity ?? 250)
-      : (currentUser?.demoEquity ?? 10000);
-
   const positions = currentUser?.positions || [];
 
-  // READ Operation: Fetch user's trade history and open positions from Firestore 'trades' collection on login/mount
+  // READ Operation: Fetch user's trade history and open positions from Firestore 'trades' collection
   async function fetchUserTrades() {
     if (!currentUser?.email) return;
     setIsLoadingTrades(true);
@@ -159,8 +157,102 @@ export function TradingDashboard({
     }
   }
 
+  // Real-Time Subscriptions using Firestore Listeners:
+  // 1. User Document Listener: Live sync of account balance (liveEquity & demoEquity) and positions
+  // 2. Trades Collection Listener: Live sync of open/closed orders and trade history
   useEffect(() => {
+    if (!currentUser?.email) return;
+
+    const email = currentUser.email;
+    const docKey = getUserDocKey(email);
+    const userDocRef = doc(db, 'users', docKey);
+
+    // 1. Real-time listener on user account document in Firestore
+    const unsubUser = onSnapshot(
+      userDocRef,
+      (docSnap) => {
+        if (!docSnap.exists()) return;
+        const firestoreUser = docSnap.data() as UserAccount;
+
+        // Detect real-time balance change and pulse animation
+        const currentMode = firestoreUser.accountType || accountMode;
+        const newBal = currentMode === 'live' ? firestoreUser.liveEquity : firestoreUser.demoEquity;
+        const oldBal = currentMode === 'live' ? currentUser?.liveEquity : currentUser?.demoEquity;
+
+        if (oldBal !== undefined && newBal !== undefined && Math.abs(newBal - oldBal) >= 0.01) {
+          const dir = newBal >= oldBal ? 'up' : 'down';
+          setBalanceTickPulse(dir);
+        }
+
+        if (onUserUpdated) {
+          onUserUpdated(firestoreUser);
+        }
+      },
+      (err) => {
+        console.warn('Firestore real-time user listener error:', err);
+      }
+    );
+
+    // 2. Real-time listener on user's trades collection in Firestore
+    const tradesQuery = query(
+      collection(db, 'trades'),
+      where('userEmail', '==', email)
+    );
+
+    const unsubTrades = onSnapshot(
+      tradesQuery,
+      (snapshot) => {
+        const activeTrades: TradePosition[] = [];
+        const historyTrades: TradePosition[] = [];
+
+        snapshot.forEach((docSnap) => {
+          const trade = docSnap.data() as TradePosition;
+          const fullTrade = { ...trade, id: docSnap.id };
+          if (trade.status === 'closed') {
+            historyTrades.push(fullTrade);
+          } else {
+            activeTrades.push(fullTrade);
+          }
+        });
+
+        // Sort history by close / creation time descending
+        historyTrades.sort((a, b) => {
+          const tA = a.closedAt || a.createdAt || '';
+          const tB = b.closedAt || b.createdAt || '';
+          return tB.localeCompare(tA);
+        });
+
+        setTradeHistory(historyTrades);
+
+        // Instant active positions sync
+        if (onUserUpdated) {
+          const curPositions = currentUser?.positions || [];
+          const curIds = new Set(curPositions.map((p) => p.id));
+          const hasDiff =
+            activeTrades.length !== curPositions.length ||
+            activeTrades.some((t) => !curIds.has(t.id));
+
+          if (hasDiff) {
+            const updated = StorageService.updatePositions(email, activeTrades);
+            if (updated) {
+              onUserUpdated(updated);
+            }
+          }
+        }
+      },
+      (err) => {
+        console.warn('Firestore real-time trades listener error:', err);
+      }
+    );
+
+    // Initial load
     fetchUserTrades();
+
+    // Clean up active subscriptions on unmount / email change
+    return () => {
+      unsubUser();
+      unsubTrades();
+    };
   }, [currentUser?.email]);
 
   // Contract sizing for authentic financial market PnL calculation across 100+ assets
@@ -257,8 +349,40 @@ export function TradingDashboard({
     return 100;
   };
 
-  const totalUnrealizedPnl = positions.reduce((acc, pos) => acc + (pos.pnl || 0), 0);
-  const currentEquity = +(bookedBalance + totalUnrealizedPnl).toFixed(2);
+  // Categorize open trades by live vs demo account
+  const livePositions = positions.filter(
+    (p) => p.accountType === 'live' || (!p.accountType && currentUser?.isLiveAccount)
+  );
+  const demoPositions = positions.filter(
+    (p) => p.accountType === 'demo' || (!p.accountType && !currentUser?.isLiveAccount)
+  );
+
+  const liveBookedBalance = currentUser?.liveEquity ?? 250;
+  const demoBookedBalance = currentUser?.demoEquity ?? 10000;
+
+  const liveUnrealizedPnl = +(livePositions.reduce((acc, pos) => acc + (pos.pnl || 0), 0)).toFixed(2);
+  const demoUnrealizedPnl = +(demoPositions.reduce((acc, pos) => acc + (pos.pnl || 0), 0)).toFixed(2);
+
+  const currentLiveEquity = +(liveBookedBalance + liveUnrealizedPnl).toFixed(2);
+  const currentDemoEquity = +(demoBookedBalance + demoUnrealizedPnl).toFixed(2);
+
+  const bookedBalance = accountMode === 'live' ? liveBookedBalance : demoBookedBalance;
+  const totalUnrealizedPnl = accountMode === 'live' ? liveUnrealizedPnl : demoUnrealizedPnl;
+  const currentEquity = accountMode === 'live' ? currentLiveEquity : currentDemoEquity;
+
+  // Real-time per-second balance tick pulse state
+  const [balanceTickPulse, setBalanceTickPulse] = useState<'up' | 'down' | null>(null);
+  const prevEquityRef = React.useRef(currentEquity);
+
+  useEffect(() => {
+    if (Math.abs(currentEquity - prevEquityRef.current) >= 0.01) {
+      const dir = currentEquity >= prevEquityRef.current ? 'up' : 'down';
+      setBalanceTickPulse(dir);
+      prevEquityRef.current = currentEquity;
+      const t = setTimeout(() => setBalanceTickPulse(null), 550);
+      return () => clearTimeout(t);
+    }
+  }, [currentEquity]);
 
   // Margin calculation incorporating selectable high leverage (1:50 up to 1:5000)
   const marginUsed = positions.reduce((acc, pos) => {
@@ -282,31 +406,31 @@ export function TradingDashboard({
   // and updates user balance in real-time in both Cloud Firestore and local storage.
   useEffect(() => {
     const timer = setInterval(() => {
-      // 1. Tick live market quotes
+      // 1. Tick live market quotes using assetsRef for instant synchronous calculation
+      const currentList = assetsRef.current;
       let updatedSelected: MarketAsset | null = null;
-      let newAssetList: MarketAsset[] = [];
 
-      setOtcAssets((prevAssets) => {
-        newAssetList = prevAssets.map((asset) => {
-          let volatility = 0.0002;
-          if (asset.category === 'Crypto') volatility = 0.0006;
-          else if (asset.category === 'Forex') volatility = 0.00008;
-          else if (asset.category === 'Commodities') volatility = 0.00025;
-          else if (asset.category === 'Stocks') volatility = 0.0003;
+      const newAssetList = currentList.map((asset) => {
+        let volatility = 0.0003;
+        if (asset.category === 'Crypto') volatility = 0.0008;
+        else if (asset.category === 'Forex') volatility = 0.00015;
+        else if (asset.category === 'Commodities') volatility = 0.0004;
+        else if (asset.category === 'Stocks') volatility = 0.0005;
 
-          const randomWalk = (Math.random() - 0.495) * volatility;
-          const isSmall = asset.price < 10;
-          const newPrice = +(asset.price * (1 + randomWalk)).toFixed(isSmall ? 4 : 2);
-          const newChange = +(asset.change + (randomWalk > 0 ? 0.01 : -0.01)).toFixed(2);
+        const randomWalk = (Math.random() - 0.495) * volatility;
+        const isSmall = asset.price < 10;
+        const newPrice = +(asset.price * (1 + randomWalk)).toFixed(isSmall ? 4 : 2);
+        const newChange = +(asset.change + (randomWalk > 0 ? 0.01 : -0.01)).toFixed(2);
 
-          const updatedAsset = { ...asset, price: newPrice, change: newChange };
-          if (selectedAsset.symbol === asset.symbol) {
-            updatedSelected = updatedAsset;
-          }
-          return updatedAsset;
-        });
-        return newAssetList;
+        const updatedAsset = { ...asset, price: newPrice, change: newChange };
+        if (selectedAsset.symbol === asset.symbol) {
+          updatedSelected = updatedAsset;
+        }
+        return updatedAsset;
       });
+
+      assetsRef.current = newAssetList;
+      setOtcAssets(newAssetList);
 
       if (updatedSelected) {
         setSelectedAsset(updatedSelected);
@@ -390,8 +514,8 @@ export function TradingDashboard({
 
           const posMode = pos.accountType || currentUser?.accountType || accountMode;
           const newBal = posMode === 'live'
-            ? (updatedUser?.liveEquity ?? currentEquity + finalPnl)
-            : (updatedUser?.demoEquity ?? currentEquity + finalPnl);
+            ? (updatedUser?.liveEquity ?? currentLiveEquity + finalPnl)
+            : (updatedUser?.demoEquity ?? currentDemoEquity + finalPnl);
 
           const isSmall = exitPrice < 10;
           if (hitTp) {
@@ -407,33 +531,22 @@ export function TradingDashboard({
           continue; // Successfully closed, remove from open positions!
         }
 
-        if (livePrice !== pos.currentPrice || livePnl !== pos.pnl) {
-          hasChange = true;
-          remainingPositions.push({
-            ...pos,
-            currentPrice: livePrice,
-            pnl: livePnl,
-          });
-        } else {
-          remainingPositions.push(pos);
-        }
+        // Live market tick for position
+        hasChange = true;
+        remainingPositions.push({
+          ...pos,
+          currentPrice: livePrice,
+          pnl: livePnl,
+        });
       }
 
-      if (hasChange && remainingPositions.length !== currentPositions.length) {
-        // If positions closed, update remaining positions' prices too
-        if (remainingPositions.length > 0) {
-          const updatedUser = StorageService.updatePositions(email, remainingPositions);
-          if (updatedUser && onUserUpdated) {
-            onUserUpdated(updatedUser);
-          }
-        }
-      } else if (hasChange) {
+      if (hasChange) {
         const updatedUser = StorageService.updatePositions(email, remainingPositions);
         if (updatedUser && onUserUpdated) {
           onUserUpdated(updatedUser);
         }
       }
-    }, 800);
+    }, 1000);
 
     return () => clearInterval(timer);
   }, [currentUser?.positions, currentUser?.email, selectedAsset.symbol, onUserUpdated]);
@@ -481,8 +594,8 @@ export function TradingDashboard({
       accountType: currentUser?.accountType || accountMode,
       entryPrice: entry,
       currentPrice: entry,
-      tp: tp.trim() || undefined,
-      sl: sl.trim() || undefined,
+      ...(tp.trim() ? { tp: tp.trim() } : {}),
+      ...(sl.trim() ? { sl: sl.trim() } : {}),
       pnl: Math.min(-0.10, initialSpreadCost),
       openTime: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       duration: tradeDuration || '1 Day (24h)',
@@ -506,10 +619,13 @@ export function TradingDashboard({
 
       // Async background save to Firestore 'trades' collection
       const tradeRef = doc(db, 'trades', newPosition.id);
-      setDoc(tradeRef, {
-        ...newPosition,
-        accountType: currentUser.accountType || accountMode,
-      }).catch((err) => console.error('Firestore save trade error:', err));
+      setDoc(
+        tradeRef,
+        removeUndefinedFields({
+          ...newPosition,
+          accountType: currentUser.accountType || accountMode,
+        })
+      ).catch((err) => console.error('Firestore save trade error:', err));
     }
 
     setIsExecuting(false);
@@ -622,9 +738,15 @@ export function TradingDashboard({
                 borderRadius: 16,
                 cursor: 'pointer',
                 transition: 'all 0.2s',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
               }}
             >
-              LIVE OTC
+              <span>LIVE OTC</span>
+              <span style={{ opacity: 0.85, fontSize: 11 }}>
+                ${currentLiveEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
             </button>
             <button
               type="button"
@@ -639,19 +761,83 @@ export function TradingDashboard({
                 borderRadius: 16,
                 cursor: 'pointer',
                 transition: 'all 0.2s',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
               }}
             >
-              DEMO
+              <span>DEMO</span>
+              <span style={{ opacity: 0.85, fontSize: 11 }}>
+                ${currentDemoEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
             </button>
           </div>
 
-          <div className="equity-item">
-            <span className="equity-label">
-              {accountMode === 'live' ? 'Live Equity' : 'Demo Equity'}
-            </span>
-            <span className="equity-value">
-              ${currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
+          <div className="equity-item" style={{ display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="equity-label" style={{ fontSize: 11, color: 'var(--text2)' }}>
+                {accountMode === 'live' ? 'Live Equity' : 'Demo Equity'}
+              </span>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: '#10b981',
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  padding: '1px 5px',
+                  borderRadius: 8,
+                }}
+              >
+                <span
+                  style={{
+                    width: 5,
+                    height: 5,
+                    borderRadius: '50%',
+                    background: '#10b981',
+                    boxShadow: '0 0 4px #10b981',
+                  }}
+                />
+                1s
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+              <span
+                className="equity-value"
+                style={{
+                  fontSize: 16,
+                  fontWeight: 800,
+                  color:
+                    balanceTickPulse === 'up'
+                      ? '#10b981'
+                      : balanceTickPulse === 'down'
+                      ? '#ef4444'
+                      : 'var(--text)',
+                  textShadow:
+                    balanceTickPulse === 'up'
+                      ? '0 0 8px rgba(16, 185, 129, 0.4)'
+                      : balanceTickPulse === 'down'
+                      ? '0 0 8px rgba(239, 68, 68, 0.4)'
+                      : 'none',
+                  transition: 'color 0.25s ease, text-shadow 0.25s ease',
+                }}
+              >
+                ${currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              {totalUnrealizedPnl !== 0 && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: totalUnrealizedPnl >= 0 ? '#10b981' : '#ef4444',
+                  }}
+                >
+                  ({totalUnrealizedPnl >= 0 ? '+' : ''}${totalUnrealizedPnl.toFixed(2)})
+                </span>
+              )}
+            </div>
           </div>
 
           <button className="header-action deposit-action" type="button" onClick={onDeposit}>
@@ -759,6 +945,103 @@ export function TradingDashboard({
         </span>
       </div>
 
+      {/* Real-Time Live Ticking Account & Balance Metrics Ribbon */}
+      <div
+        style={{
+          background: 'var(--card)',
+          borderBottom: '1px solid var(--border)',
+          borderTop: '1px solid var(--border)',
+          padding: '8px 20px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+          fontSize: 12,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: '#10b981',
+                boxShadow: '0 0 6px #10b981',
+              }}
+            />
+            <span style={{ fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Activity size={13} color="#10b981" /> Real-Time 1s Engine
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--text3)' }}>Stored Booked Balance:</span>
+            <strong style={{ color: 'var(--text)' }}>
+              ${bookedBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+            </strong>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--text3)' }}>{accountMode === 'live' ? 'Live Equity:' : 'Demo Equity:'}</span>
+            <strong
+              style={{
+                color:
+                  balanceTickPulse === 'up'
+                    ? '#10b981'
+                    : balanceTickPulse === 'down'
+                    ? '#ef4444'
+                    : 'var(--text)',
+                transition: 'color 0.25s ease',
+              }}
+            >
+              ${currentEquity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+            </strong>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--text3)' }}>{accountMode === 'live' ? 'Demo Equity:' : 'Live Equity:'}</span>
+            <strong style={{ color: 'var(--text2)' }}>
+              ${(accountMode === 'live' ? currentDemoEquity : currentLiveEquity).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+            </strong>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--text3)' }}>Floating P&amp;L:</span>
+            <strong
+              style={{
+                color: totalUnrealizedPnl >= 0 ? '#10b981' : '#ef4444',
+                background: totalUnrealizedPnl >= 0 ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                padding: '1px 6px',
+                borderRadius: 4,
+              }}
+            >
+              {totalUnrealizedPnl >= 0 ? '+' : ''}${totalUnrealizedPnl.toFixed(2)} USD
+            </strong>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div>
+            <span style={{ color: 'var(--text3)' }}>Free Margin: </span>
+            <strong style={{ color: 'var(--text)' }}>
+              ${freeMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </strong>
+          </div>
+          <div>
+            <span style={{ color: 'var(--text3)' }}>Margin Level: </span>
+            <strong style={{ color: marginUsed > 0 ? '#10b981' : 'var(--text2)' }}>
+              {marginLevel}%
+            </strong>
+          </div>
+          <div>
+            <span style={{ color: 'var(--text3)' }}>Leverage: </span>
+            <strong style={{ color: 'var(--accent)' }}>1:{leverage}</strong>
+          </div>
+        </div>
+      </div>
+
       {accountMode === 'live' ? (
         <div
           style={{
@@ -788,7 +1071,7 @@ export function TradingDashboard({
               <ShieldCheck size={16} color="#10b981" /> Live Account Active — {currentUser?.fullName || 'Verified Trader'}
             </strong>
             <span style={{ fontSize: 13, color: 'var(--text2)' }}>
-              (6 OTC Assets Enabled · 24-Hour Trade Execution)
+              ({otcAssets.length}+ Live Market Assets · High Leverage Enabled)
             </span>
           </div>
           <button
@@ -839,7 +1122,7 @@ export function TradingDashboard({
           className={activeTab === 'markets' ? 'dash-tab active' : 'dash-tab'}
           onClick={() => setActiveTab('markets')}
         >
-          OTC Markets (6 Assets)
+          Live Markets ({otcAssets.length})
         </button>
         <button
           type="button"
@@ -1140,22 +1423,55 @@ export function TradingDashboard({
                 </div>
               )}
 
-              <div className="trade-actions" style={{ marginTop: 12 }}>
+              <div className="trade-actions" style={{ marginTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <button
                   className="trade-btn buy"
                   type="button"
                   disabled={isExecuting}
                   onClick={() => handleExecuteTrade('buy')}
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 3,
+                    cursor: isExecuting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s ease',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.25)',
+                  }}
                 >
-                  <ArrowUp size={18} /> Buy {selectedAsset.symbol} · 1:{leverage}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 15, fontWeight: 800 }}>
+                    <ArrowUp size={18} /> BUY {selectedAsset.symbol}
+                  </div>
+                  <span style={{ fontSize: 11, opacity: 0.9 }}>
+                    {parseFloat(lotSize) || 0.1} Lot @ ${selectedAsset.price.toLocaleString(undefined, { minimumFractionDigits: selectedAsset.price < 10 ? 4 : 2 })} · 1:{leverage}
+                  </span>
                 </button>
+
                 <button
                   className="trade-btn sell"
                   type="button"
                   disabled={isExecuting}
                   onClick={() => handleExecuteTrade('sell')}
+                  style={{
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 3,
+                    cursor: isExecuting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.15s ease',
+                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)',
+                  }}
                 >
-                  <ArrowDown size={18} /> Sell {selectedAsset.symbol} · 1:{leverage}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 15, fontWeight: 800 }}>
+                    <ArrowDown size={18} /> SELL {selectedAsset.symbol}
+                  </div>
+                  <span style={{ fontSize: 11, opacity: 0.9 }}>
+                    {parseFloat(lotSize) || 0.1} Lot @ ${selectedAsset.price.toLocaleString(undefined, { minimumFractionDigits: selectedAsset.price < 10 ? 4 : 2 })} · 1:{leverage}
+                  </span>
                 </button>
               </div>
 

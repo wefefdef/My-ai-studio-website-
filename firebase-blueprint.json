@@ -79,9 +79,32 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "title", "enabled"]
+    },
+    "TemporaryInvitation": {
+      "title": "TemporaryInvitation",
+      "description": "Owner-generated temporary invitation links with custom expiration timestamps for access control.",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string" },
+        "durationStr": { "type": "string" },
+        "durationMs": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "createdTimestamp": { "type": "number" },
+        "expiresAt": { "type": "number" },
+        "expiresAtIso": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "expired", "revoked", "used"] },
+        "usedCount": { "type": "number" },
+        "associatedUserEmail": { "type": "string" },
+        "lastAccessedAt": { "type": "string" }
+      },
+      "required": ["token", "durationMs", "createdAt", "expiresAt", "status"]
     }
   },
   "firestore": {
+    "/invitations/{token}": {
+      "schema": "TemporaryInvitation",
+      "description": "Temporary invitation tokens with expiration timestamps."
+    },
     "/payment_methods/{methodId}": {
       "schema": "PaymentMethod",
       "description": "Payment methods collection containing configurable payment details, managed by owner and viewed by users."

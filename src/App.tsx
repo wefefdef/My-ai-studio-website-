@@ -14,6 +14,7 @@ import { TradingDashboard } from './components/TradingDashboard';
 import { FullProfilePage } from './components/FullProfilePage';
 import { WithdrawalPage } from './components/WithdrawalPage';
 import { StorageService } from './services/storage';
+import { InvitationService } from './services/invitationService';
 
 // Helper to determine the strictly legitimate next view for a user.
 // Consolidates checks with StorageService to guarantee that 'details' and 'questionnaire'
@@ -89,6 +90,45 @@ export default function App() {
   // Registration feedback passed to Sign In page
   const [prefilledEmail, setPrefilledEmail] = useState('');
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
+
+  // Temporary Invitation Link status
+  const [inviteNotice, setInviteNotice] = useState<{
+    valid: boolean;
+    token?: string;
+    message?: string;
+  } | null>(null);
+
+  // Check for invitation token in URL pathname or hash on load
+  useEffect(() => {
+    async function checkInviteToken() {
+      const pathMatch = window.location.pathname.match(/\/invite\/([a-zA-Z0-9_-]+)/);
+      const hashMatch = window.location.hash.match(/invite\/([a-zA-Z0-9_-]+)/);
+      const token = pathMatch ? pathMatch[1] : (hashMatch ? hashMatch[1] : null);
+
+      if (token) {
+        const res = await InvitationService.validateInviteToken(token);
+        if (res.valid) {
+          sessionStorage.setItem('activeInviteToken', token);
+          setInviteNotice({
+            valid: true,
+            token,
+            message: 'Temporary invitation access active. Welcome to the platform!',
+          });
+          if (window.location.pathname.startsWith('/invite/')) {
+            window.history.replaceState({ view: 'landing' }, '', '/');
+          }
+          setTimeout(() => setInviteNotice(null), 6000);
+        } else {
+          setInviteNotice({
+            valid: false,
+            token,
+            message: 'This temporary invitation link has expired or is invalid. Please request a new invitation link from the owner.',
+          });
+        }
+      }
+    }
+    checkInviteToken();
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -262,6 +302,10 @@ export default function App() {
   }, [view, currentUser]);
 
   function handleRegistered(email: string) {
+    const activeInvite = sessionStorage.getItem('activeInviteToken');
+    if (activeInvite) {
+      InvitationService.associateUserWithInvite(activeInvite, email);
+    }
     setPrefilledEmail(email);
     setRegistrationMessage(
       'Account created successfully! Please sign in with your permanent credentials.'
@@ -272,6 +316,11 @@ export default function App() {
   function handleLoginSuccess(user: UserAccount) {
     setCurrentUser(user);
     setRegistrationMessage(null);
+
+    const activeInvite = sessionStorage.getItem('activeInviteToken');
+    if (activeInvite && user.email) {
+      InvitationService.associateUserWithInvite(activeInvite, user.email);
+    }
 
     const hasDetails = StorageService.hasCompletedPersonalDetails(user);
     const hasQuestionnaire = StorageService.hasCompletedQuestionnaire(user);
@@ -392,18 +441,18 @@ export default function App() {
   }
 
   // --- ROUTED VIEWS WITH EXACT 1-STEP BACK & PERMANENT STAGE GUARDS ---
-
-  if (view === 'landing') {
-    return (
-      <LandingPage
-        onLogin={() => {
-          setRegistrationMessage(null);
-          navigate('sign-in');
-        }}
-        onStartTrading={() => navigate('register')}
-      />
-    );
-  }
+  function renderView() {
+    if (view === 'landing') {
+      return (
+        <LandingPage
+          onLogin={() => {
+            setRegistrationMessage(null);
+            navigate('sign-in');
+          }}
+          onStartTrading={() => navigate('register')}
+        />
+      );
+    }
 
   if (view === 'register') {
     return (
@@ -520,20 +569,66 @@ export default function App() {
     );
   }
 
-  if (view === 'withdraw') {
-    return <WithdrawalPage onBack={goBack} />;
+    if (view === 'withdraw') {
+      return <WithdrawalPage onBack={goBack} />;
+    }
+
+    return (
+      <TradingDashboard
+        currentUser={currentUser}
+        onDeposit={() => navigate('payments')}
+        onWithdraw={() => navigate('withdraw')}
+        theme={theme}
+        onThemeChange={setTheme}
+        onLogout={handleLogout}
+        onUserUpdated={(updated) => setCurrentUser(updated)}
+        onOpenProfile={() => navigate('profile')}
+      />
+    );
   }
 
   return (
-    <TradingDashboard
-      currentUser={currentUser}
-      onDeposit={() => navigate('payments')}
-      onWithdraw={() => navigate('withdraw')}
-      theme={theme}
-      onThemeChange={setTheme}
-      onLogout={handleLogout}
-      onUserUpdated={(updated) => setCurrentUser(updated)}
-      onOpenProfile={() => navigate('profile')}
-    />
+    <>
+      {inviteNotice && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 16,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 999999,
+            background: inviteNotice.valid ? '#10b981' : '#ef4444',
+            color: '#ffffff',
+            padding: '10px 18px',
+            borderRadius: 10,
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.25)',
+            fontSize: 13,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            maxWidth: '92%',
+          }}
+        >
+          <span>{inviteNotice.message}</span>
+          <button
+            type="button"
+            onClick={() => setInviteNotice(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#ffffff',
+              cursor: 'pointer',
+              fontSize: 14,
+              padding: 0,
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      {renderView()}
+    </>
   );
 }

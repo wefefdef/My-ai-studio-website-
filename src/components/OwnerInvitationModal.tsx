@@ -108,9 +108,15 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
   // 2. Generate a new invitation with custom duration
   async function handleGenerateInvite(e: React.FormEvent) {
     e.preventDefault();
-    if (!ownerToken) return;
+    if (isGenerating) return;
 
-    if (!customDuration.trim()) {
+    if (!ownerToken) {
+      setActionMsg({ text: 'Session expired. Please lock and re-authenticate.', isError: true });
+      return;
+    }
+
+    const trimmedDuration = (customDuration || '').trim();
+    if (!trimmedDuration) {
       setActionMsg({ text: 'Please enter or select a duration.', isError: true });
       return;
     }
@@ -118,16 +124,24 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
     setIsGenerating(true);
     setActionMsg(null);
 
-    const res = await InvitationService.generateInvitation(customDuration.trim(), ownerToken);
-    setIsGenerating(false);
-
-    if (res.success && res.invitation) {
-      setRecentlyCreated(res.invitation);
-      setInvitations((prev) => [res.invitation!, ...prev.filter((i) => i.token !== res.invitation!.token)]);
-      setActionMsg({ text: 'Temporary invitation link generated successfully!' });
-      setTimeout(() => setActionMsg(null), 4000);
-    } else {
-      setActionMsg({ text: res.error || 'Failed to generate invitation.', isError: true });
+    try {
+      const res = await InvitationService.generateInvitation(trimmedDuration, ownerToken);
+      if (res.success && res.invitation) {
+        setRecentlyCreated(res.invitation);
+        setInvitations((prev) => [
+          res.invitation!,
+          ...prev.filter((i) => i.token !== res.invitation!.token),
+        ]);
+        setActionMsg({ text: `Temporary invitation link generated (${res.invitation.durationStr})!` });
+        handleCopyLink(res.invitation.token);
+        setTimeout(() => setActionMsg(null), 4500);
+      } else {
+        setActionMsg({ text: res.error || 'Failed to generate invitation.', isError: true });
+      }
+    } catch (err: any) {
+      setActionMsg({ text: 'An unexpected error occurred while generating link.', isError: true });
+    } finally {
+      setIsGenerating(false);
     }
   }
 
@@ -161,21 +175,24 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
     }
   }
 
-  // 5. Copy link to clipboard
+  function getInviteUrl(token: string): string {
+    let origin = window.location.origin;
+    if (!origin || origin === 'null') {
+      origin = window.location.href.split('#')[0].replace(/\/invite\/.*/, '').replace(/\/$/, '');
+    }
+    return `${origin}/invite/${token}`;
+  }
+
+  // 5. Copy link to clipboard with multi-tier fallback
   function handleCopyLink(token: string) {
-    const origin = window.location.origin;
-    const fullUrl = `${origin}/invite/${token}`;
+    const fullUrl = getInviteUrl(token);
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(fullUrl);
+      navigator.clipboard.writeText(fullUrl).catch(() => {
+        fallbackCopy(fullUrl);
+      });
     } else {
-      // Fallback
-      const ta = document.createElement('textarea');
-      ta.value = fullUrl;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
+      fallbackCopy(fullUrl);
     }
 
     setCopiedToken(token);
@@ -184,8 +201,25 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
     }, 2500);
   }
 
+  function fallbackCopy(text: string) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    } catch (e) {
+      console.warn('Clipboard copy error:', e);
+    }
+  }
+
   // Format relative remaining time
   function getRemainingTime(expiresAt: number): string {
+    if (!expiresAt || isNaN(expiresAt)) return 'Active';
     const diff = expiresAt - Date.now();
     if (diff <= 0) return 'Expired';
 
@@ -201,7 +235,7 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
       const remMins = mins % 60;
       return `${hours}h ${remMins}m left`;
     }
-    return `${mins}m left`;
+    return `${Math.max(1, mins)}m left`;
   }
 
   if (!isOpen) return null;
@@ -574,7 +608,7 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
                     <input
                       type="text"
                       readOnly
-                      value={`${window.location.origin}/invite/${recentlyCreated.token}`}
+                      value={getInviteUrl(recentlyCreated.token)}
                       style={{
                         flex: 1,
                         background: 'transparent',
@@ -585,6 +619,27 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
                         fontFamily: 'monospace',
                       }}
                     />
+                    <a
+                      href={getInviteUrl(recentlyCreated.token)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open and test link in new tab"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '6px 10px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border, #cbd5e1)',
+                        background: 'var(--bg2, #f8fafc)',
+                        color: 'var(--text, #0f172a)',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        textDecoration: 'none',
+                      }}
+                    >
+                      <ExternalLink size={14} /> Test
+                    </a>
                     <button
                       type="button"
                       onClick={() => handleCopyLink(recentlyCreated.token)}
@@ -712,29 +767,51 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
                               color: 'var(--text2, #334155)',
                             }}
                           >
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '75%' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>
                               .../invite/{inv.token}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyLink(inv.token)}
-                              style={{
-                                background: copiedToken === inv.token ? '#10b981' : 'none',
-                                color: copiedToken === inv.token ? '#ffffff' : 'var(--accent, #0284c7)',
-                                border: 'none',
-                                borderRadius: 4,
-                                padding: '3px 8px',
-                                fontSize: 11,
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4,
-                              }}
-                            >
-                              {copiedToken === inv.token ? <Check size={12} /> : <Copy size={12} />}
-                              {copiedToken === inv.token ? 'Copied' : 'Copy'}
-                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <a
+                                href={getInviteUrl(inv.token)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Open link in new tab"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 2,
+                                  color: 'var(--text2, #64748b)',
+                                  textDecoration: 'none',
+                                  fontSize: 11,
+                                  fontWeight: 500,
+                                  padding: '2px 6px',
+                                  borderRadius: 4,
+                                  border: '1px solid var(--border, #cbd5e1)',
+                                }}
+                              >
+                                <ExternalLink size={11} /> Open
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyLink(inv.token)}
+                                style={{
+                                  background: copiedToken === inv.token ? '#10b981' : 'none',
+                                  color: copiedToken === inv.token ? '#ffffff' : 'var(--accent, #0284c7)',
+                                  border: 'none',
+                                  borderRadius: 4,
+                                  padding: '3px 8px',
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                {copiedToken === inv.token ? <Check size={12} /> : <Copy size={12} />}
+                                {copiedToken === inv.token ? 'Copied' : 'Copy'}
+                              </button>
+                            </div>
                           </div>
 
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--text2, #64748b)' }}>

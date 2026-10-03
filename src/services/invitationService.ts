@@ -226,11 +226,43 @@ export const InvitationService = {
 
   // 6. Validate invitation token for visiting user
   async validateInviteToken(token: string): Promise<{ valid: boolean; status?: string; expiresAt?: number; durationStr?: string }> {
+    if (!token) return { valid: false, status: 'invalid' };
+
+    // 1. Direct Firestore validation (primary source of truth across all platforms)
     try {
-      const res = await fetch(`/api/invite/validate/${token}`);
-      if (res.status === 404) {
-        return { valid: false, status: 'expired' };
+      const snap = await getDoc(doc(db, 'invitations', token));
+      if (snap.exists()) {
+        const data = snap.data() as InvitationRecord;
+        const now = Date.now();
+
+        if (data.status === 'revoked') {
+          return { valid: false, status: 'revoked' };
+        }
+        if (data.expiresAt && data.expiresAt <= now) {
+          updateDoc(doc(db, 'invitations', token), { status: 'expired' }).catch(() => {});
+          return { valid: false, status: 'expired' };
+        }
+
+        // Valid and active! Record usage in background
+        updateDoc(doc(db, 'invitations', token), {
+          usedCount: (data.usedCount || 0) + 1,
+          lastAccessedAt: new Date(now).toISOString(),
+        }).catch(() => {});
+
+        return {
+          valid: true,
+          status: 'active',
+          expiresAt: data.expiresAt,
+          durationStr: data.durationStr,
+        };
       }
+    } catch (err) {
+      console.warn('Direct Firestore check failed for token:', err);
+    }
+
+    // 2. Secondary check via backend API endpoint if Firestore document wasn't found directly
+    try {
+      const res = await fetch(`/api/invite/validate/${encodeURIComponent(token)}`);
       if (res.ok) {
         const data = await res.json();
         if (data.valid) {
@@ -240,39 +272,7 @@ export const InvitationService = {
       }
     } catch {}
 
-    // Direct Firestore validation fallback
-    try {
-      const snap = await getDoc(doc(db, 'invitations', token));
-      if (!snap.exists()) {
-        return { valid: false, status: 'invalid' };
-      }
-      const data = snap.data() as InvitationRecord;
-      const now = Date.now();
-
-      if (data.status === 'revoked') {
-        return { valid: false, status: 'revoked' };
-      }
-      if (data.expiresAt && data.expiresAt <= now) {
-        updateDoc(doc(db, 'invitations', token), { status: 'expired' }).catch(() => {});
-        return { valid: false, status: 'expired' };
-      }
-
-      // Record access
-      updateDoc(doc(db, 'invitations', token), {
-        usedCount: (data.usedCount || 0) + 1,
-        lastAccessedAt: new Date(now).toISOString(),
-      }).catch(() => {});
-
-      return {
-        valid: true,
-        status: 'active',
-        expiresAt: data.expiresAt,
-        durationStr: data.durationStr,
-      };
-    } catch {
-      // In case of transient offline glitch, allow pass through
-      return { valid: true, status: 'unknown' };
-    }
+    return { valid: false, status: 'not_found' };
   },
 
   // 7. Associate user email with invitation token when user registers or logs in

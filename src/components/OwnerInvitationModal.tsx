@@ -178,9 +178,9 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
   function getInviteUrl(token: string): string {
     let origin = window.location.origin;
     if (!origin || origin === 'null') {
-      origin = window.location.href.split('#')[0].replace(/\/invite\/.*/, '').replace(/\/$/, '');
+      origin = window.location.href.split('?')[0].split('#')[0].replace(/\/invite\/.*/, '').replace(/\/$/, '');
     }
-    return `${origin}/invite/${token}`;
+    return `${origin}/?invite=${token}`;
   }
 
   // 5. Copy link to clipboard with multi-tier fallback
@@ -768,7 +768,7 @@ export function OwnerInvitationModal({ isOpen, onClose }: OwnerInvitationModalPr
                             }}
                           >
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>
-                              .../invite/{inv.token}
+                              ?invite={inv.token}
                             </span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <a

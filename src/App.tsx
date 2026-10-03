@@ -98,31 +98,48 @@ export default function App() {
     message?: string;
   } | null>(null);
 
-  // Check for invitation token in URL pathname or hash on load
+  // Check for invitation token in URL query parameter (?invite=...), pathname (/invite/...), or hash (#invite/...) on load
   useEffect(() => {
     async function checkInviteToken() {
+      const searchParams = new URLSearchParams(window.location.search);
+      const queryToken =
+        searchParams.get('invite') ||
+        searchParams.get('token') ||
+        searchParams.get('inv');
       const pathMatch = window.location.pathname.match(/\/invite\/([a-zA-Z0-9_-]+)/);
       const hashMatch = window.location.hash.match(/invite\/([a-zA-Z0-9_-]+)/);
-      const token = pathMatch ? pathMatch[1] : (hashMatch ? hashMatch[1] : null);
+      const token = queryToken || (pathMatch ? pathMatch[1] : (hashMatch ? hashMatch[1] : null));
 
       if (token) {
         const res = await InvitationService.validateInviteToken(token);
         if (res.valid) {
           sessionStorage.setItem('activeInviteToken', token);
+          localStorage.setItem('activeInviteToken', token);
           setInviteNotice({
             valid: true,
             token,
-            message: 'Temporary invitation access active. Welcome to the platform!',
+            message: `Temporary invitation access active (${res.durationStr || 'Authorized'}). Welcome!`,
           });
-          if (window.location.pathname.startsWith('/invite/')) {
+          if (queryToken) {
+            searchParams.delete('invite');
+            searchParams.delete('token');
+            searchParams.delete('inv');
+            const newSearch = searchParams.toString();
+            const cleanUrl =
+              window.location.pathname +
+              (newSearch ? `?${newSearch}` : '') +
+              window.location.hash;
+            window.history.replaceState({ view: 'landing' }, '', cleanUrl || '/');
+          } else if (window.location.pathname.startsWith('/invite/')) {
             window.history.replaceState({ view: 'landing' }, '', '/');
           }
-          setTimeout(() => setInviteNotice(null), 6000);
+          setTimeout(() => setInviteNotice(null), 7000);
         } else {
           setInviteNotice({
             valid: false,
             token,
-            message: 'This temporary invitation link has expired or is invalid. Please request a new invitation link from the owner.',
+            message:
+              'This temporary invitation link has expired or is invalid. Please request a new invitation link from the owner.',
           });
         }
       }

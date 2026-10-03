@@ -291,4 +291,13 @@ export const InvitationService = {
       });
     } catch {}
   },
+
+  // 8. Explicitly mark token expired in Firestore
+  async markExpired(token: string): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'invitations', token), {
+        status: 'expired',
+      });
+    } catch {}
+  },
 };

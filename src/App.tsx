@@ -15,6 +15,32 @@ import { FullProfilePage } from './components/FullProfilePage';
 import { WithdrawalPage } from './components/WithdrawalPage';
 import { StorageService } from './services/storage';
 import { InvitationService } from './services/invitationService';
+import { Clock } from 'lucide-react';
+import { AccessExpiredScreen } from './components/AccessExpiredScreen';
+
+interface ActiveInviteState {
+  token: string;
+  expiresAt: number;
+  durationStr?: string;
+}
+
+interface InviteLockState {
+  isLocked: boolean;
+  token?: string | null;
+  expiresAt?: number | null;
+  reason?: string;
+}
+
+function formatCountdown(totalSecs: number): string {
+  if (totalSecs <= 0) return '00:00';
+  const hours = Math.floor(totalSecs / 3600);
+  const mins = Math.floor((totalSecs % 3600) / 60);
+  const secs = totalSecs % 60;
+  if (hours > 0) {
+    return `${hours}h ${mins.toString().padStart(2, '0')}m ${secs.toString().padStart(2, '0')}s`;
+  }
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
 
 // Helper to determine the strictly legitimate next view for a user.
 // Consolidates checks with StorageService to guarantee that 'details' and 'questionnaire'
@@ -98,7 +124,12 @@ export default function App() {
     message?: string;
   } | null>(null);
 
-  // Check for invitation token in URL query parameter (?invite=...), pathname (/invite/...), or hash (#invite/...) on load
+  // Active Invite & Strict Expiration Enforcement State
+  const [activeInvite, setActiveInvite] = useState<ActiveInviteState | null>(null);
+  const [inviteLock, setInviteLock] = useState<InviteLockState>({ isLocked: false });
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
+
+  // 1. Check for invitation token in URL query (?invite=...), pathname (/invite/...), hash (#invite/...), or stored session
   useEffect(() => {
     async function checkInviteToken() {
       const searchParams = new URLSearchParams(window.location.search);
@@ -108,18 +139,38 @@ export default function App() {
         searchParams.get('inv');
       const pathMatch = window.location.pathname.match(/\/invite\/([a-zA-Z0-9_-]+)/);
       const hashMatch = window.location.hash.match(/invite\/([a-zA-Z0-9_-]+)/);
-      const token = queryToken || (pathMatch ? pathMatch[1] : (hashMatch ? hashMatch[1] : null));
+      const urlToken = queryToken || (pathMatch ? pathMatch[1] : (hashMatch ? hashMatch[1] : null));
+
+      // Either urlToken, or previously saved active invite token
+      const storedToken =
+        sessionStorage.getItem('activeInviteToken') ||
+        localStorage.getItem('activeInviteToken');
+      const token = urlToken || storedToken;
 
       if (token) {
         const res = await InvitationService.validateInviteToken(token);
-        if (res.valid) {
-          sessionStorage.setItem('activeInviteToken', token);
-          localStorage.setItem('activeInviteToken', token);
-          setInviteNotice({
-            valid: true,
+        if (res.valid && res.expiresAt) {
+          const inviteData: ActiveInviteState = {
             token,
-            message: `Temporary invitation access active (${res.durationStr || 'Authorized'}). Welcome!`,
-          });
+            expiresAt: res.expiresAt,
+            durationStr: res.durationStr,
+          };
+          setActiveInvite(inviteData);
+          setInviteLock({ isLocked: false });
+          sessionStorage.setItem('activeInviteToken', token);
+          sessionStorage.setItem('activeInviteExpiresAt', String(res.expiresAt));
+          localStorage.setItem('activeInviteToken', token);
+          localStorage.setItem('activeInviteExpiresAt', String(res.expiresAt));
+
+          if (urlToken) {
+            setInviteNotice({
+              valid: true,
+              token,
+              message: `Temporary invitation access active (${res.durationStr || 'Authorized'}). Welcome!`,
+            });
+            setTimeout(() => setInviteNotice(null), 6000);
+          }
+
           if (queryToken) {
             searchParams.delete('invite');
             searchParams.delete('token');
@@ -133,19 +184,106 @@ export default function App() {
           } else if (window.location.pathname.startsWith('/invite/')) {
             window.history.replaceState({ view: 'landing' }, '', '/');
           }
-          setTimeout(() => setInviteNotice(null), 7000);
         } else {
-          setInviteNotice({
-            valid: false,
+          // EXPIRED OR INVALID TOKEN! LOCK SCREEN IMMEDIATELY!
+          sessionStorage.removeItem('activeInviteToken');
+          sessionStorage.removeItem('activeInviteExpiresAt');
+          localStorage.removeItem('activeInviteToken');
+          localStorage.removeItem('activeInviteExpiresAt');
+          setActiveInvite(null);
+
+          setInviteLock({
+            isLocked: true,
             token,
-            message:
-              'This temporary invitation link has expired or is invalid. Please request a new invitation link from the owner.',
+            expiresAt: res.expiresAt || null,
+            reason:
+              res.status === 'revoked'
+                ? 'This invitation link has been revoked by the administrator.'
+                : 'This temporary invitation link has expired. Access to the platform is now locked.',
           });
         }
       }
     }
     checkInviteToken();
   }, []);
+
+  // 2. Real-time ticking heartbeat: Enforce strict second-by-second expiration
+  useEffect(() => {
+    if (!activeInvite?.expiresAt) {
+      setSecondsRemaining(null);
+      return;
+    }
+
+    function tick() {
+      const now = Date.now();
+      const diff = activeInvite!.expiresAt - now;
+
+      if (diff <= 0) {
+        // EXPIRED THE EXACT SECOND THE DURATION ENDS!
+        const expiredToken = activeInvite!.token;
+        const expiredAt = activeInvite!.expiresAt;
+
+        setActiveInvite(null);
+        setSecondsRemaining(0);
+        sessionStorage.removeItem('activeInviteToken');
+        sessionStorage.removeItem('activeInviteExpiresAt');
+        localStorage.removeItem('activeInviteToken');
+        localStorage.removeItem('activeInviteExpiresAt');
+
+        setInviteLock({
+          isLocked: true,
+          token: expiredToken,
+          expiresAt: expiredAt,
+          reason: 'Your authorized temporary access time has expired. Platform features are now locked.',
+        });
+
+        // Mark expired in Firestore
+        InvitationService.markExpired(expiredToken);
+      } else {
+        setSecondsRemaining(Math.ceil(diff / 1000));
+      }
+    }
+
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [activeInvite]);
+
+  // 3. Periodic background check to catch owner revoking the invitation in real time
+  useEffect(() => {
+    if (!activeInvite?.token) return;
+
+    async function revalidate() {
+      if (!activeInvite?.token) return;
+      const res = await InvitationService.validateInviteToken(activeInvite.token);
+      if (!res.valid) {
+        const token = activeInvite.token;
+        const expiresAt = res.expiresAt || activeInvite.expiresAt;
+        setActiveInvite(null);
+        sessionStorage.removeItem('activeInviteToken');
+        sessionStorage.removeItem('activeInviteExpiresAt');
+        localStorage.removeItem('activeInviteToken');
+        localStorage.removeItem('activeInviteExpiresAt');
+
+        setInviteLock({
+          isLocked: true,
+          token,
+          expiresAt,
+          reason:
+            res.status === 'revoked'
+              ? 'This invitation link has been revoked by the administrator.'
+              : 'Your temporary invitation has expired.',
+        });
+      }
+    }
+
+    const interval = setInterval(revalidate, 15000);
+    window.addEventListener('focus', revalidate);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', revalidate);
+    };
+  }, [activeInvite?.token]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -604,6 +742,20 @@ export default function App() {
     );
   }
 
+  if (inviteLock.isLocked) {
+    return (
+      <AccessExpiredScreen
+        token={inviteLock.token}
+        expiresAt={inviteLock.expiresAt}
+        reason={inviteLock.reason}
+        onUnlocked={(newToken) => {
+          setInviteLock({ isLocked: false });
+          window.location.search = `?invite=${encodeURIComponent(newToken)}`;
+        }}
+      />
+    );
+  }
+
   return (
     <>
       {inviteNotice && (
@@ -645,6 +797,39 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {/* Live ticking countdown floating badge for active temporary access */}
+      {activeInvite && secondsRemaining !== null && secondsRemaining > 0 && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 18,
+            right: 18,
+            zIndex: 99999,
+            background:
+              secondsRemaining < 60
+                ? '#ef4444'
+                : secondsRemaining < 300
+                ? '#f59e0b'
+                : '#0f172a',
+            color: '#ffffff',
+            padding: '8px 14px',
+            borderRadius: 30,
+            fontSize: 12,
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.35)',
+            border: '1px solid rgba(255, 255, 255, 0.15)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <Clock size={14} className={secondsRemaining < 60 ? 'animate-pulse' : ''} />
+          <span>Access: {formatCountdown(secondsRemaining)} remaining</span>
+        </div>
+      )}
+
       {renderView()}
     </>
   );

@@ -1,16 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import {
-  ArrowLeft,
   CircleCheck,
   Landmark,
   ShieldCheck,
-  ArrowRight,
   Copy,
   Check,
   AlertCircle,
   Loader2,
   SlidersHorizontal,
-  Coins,
 } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';
@@ -18,6 +15,13 @@ import { Footer } from './Footer';
 import { PaymentMethod } from '../types';
 import { PaymentMethodsService, INITIAL_DEFAULT_PAYMENT_METHODS } from '../services/paymentMethods';
 import { OwnerPaymentSettingsModal } from './OwnerPaymentSettingsModal';
+import {
+  BankTransferSticker,
+  PagaBankLogo,
+  getCryptoBadge,
+  CircleBackButton,
+  CircleForwardArrow,
+} from './PaymentMethodIcons';
 
 interface BankDetailsPageProps {
   amount: number;
@@ -125,14 +129,7 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
   return (
     <main className="payment-page">
       <header className="payment-header">
-        <button
-          className="back-button visible"
-          type="button"
-          onClick={onBack}
-          aria-label="Go back"
-        >
-          <ArrowLeft size={22} />
-        </button>
+        <CircleBackButton onClick={onBack} ariaLabel="Go back" />
         <BrandMark onClick={onBack} />
         <LanguageButton />
       </header>
@@ -141,10 +138,10 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
         <div className="success-icon">
           <CircleCheck size={28} />
         </div>
-        <p className="eyebrow">BANK TRANSFER</p>
+        <p className="eyebrow">PAYMENT DETAILS</p>
         <h1>Complete your deposit</h1>
         <p className="payment-intro">
-          Transfer the converted amount below using the bank details provided. Tap any row to copy it.
+          Transfer the converted amount below using the bank or crypto details provided. Tap any row to copy it.
         </p>
 
         <div className="transfer-summary">
@@ -154,18 +151,53 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
           <strong>₦{convertedNgn.toLocaleString()}</strong>
         </div>
 
-        {/* Dynamic Database Payment Methods */}
+        {/* Dynamic Database Payment Methods with Appropriate Visual Identifiers */}
         {paymentMethods.map((method) => {
           if (method.type === 'crypto') {
             return (
               <div className="bank-card" key={method.id} style={{ marginBottom: 16 }}>
-                <div className="bank-card-title">
-                  <Coins size={21} color="#f59e0b" /> {method.title || 'Crypto Wallet'}
+                <div
+                  className="bank-card-title"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {getCryptoBadge(method.title + ' ' + (method.network || ''), 24)}
+                    <span>{method.title || 'Crypto Wallet'}</span>
+                  </div>
+                  {method.network && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        background: 'rgba(98, 126, 234, 0.12)',
+                        color: '#627eea',
+                      }}
+                    >
+                      {method.network}
+                    </span>
+                  )}
                 </div>
                 {method.network && <BankRow label="Network / Protocol" value={method.network} />}
                 <BankRow label="Wallet address" value={method.walletAddress || ''} />
                 {method.instructions && (
-                  <div style={{ fontSize: 12, color: 'var(--text2)', padding: '8px 14px', background: 'var(--bg2)', borderRadius: 6, marginTop: 8 }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--text2)',
+                      padding: '8px 14px',
+                      background: 'var(--bg2)',
+                      borderRadius: 6,
+                      marginTop: 8,
+                    }}
+                  >
                     {method.instructions}
                   </div>
                 )}
@@ -173,16 +205,45 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
             );
           }
 
+          // Bank transfer method with official Visa/Mastercard visual identifier
           return (
             <div className="bank-card" key={method.id} style={{ marginBottom: 16 }}>
-              <div className="bank-card-title">
-                <Landmark size={21} /> {method.title || 'Bank details'}
+              <div
+                className="bank-card-title"
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Landmark size={20} color="var(--accent, #1a6dd4)" />
+                  <span>{method.title || 'Bank details'}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {method.bankName?.toLowerCase().includes('paga') ? (
+                    <PagaBankLogo height={18} />
+                  ) : (
+                    <BankTransferSticker size="sm" />
+                  )}
+                </div>
               </div>
               <BankRow label="Bank name" value={method.bankName || 'Paga'} />
               <BankRow label="Account number" value={method.accountNumber || '0469216912'} />
               <BankRow label="Account owner name" value={method.accountOwnerName || 'Uthman'} />
               {method.instructions && (
-                <div style={{ fontSize: 12, color: 'var(--text2)', padding: '8px 14px', background: 'var(--bg2)', borderRadius: 6, marginTop: 8 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: 'var(--text2)',
+                    padding: '8px 14px',
+                    background: 'var(--bg2)',
+                    borderRadius: 6,
+                    marginTop: 8,
+                  }}
+                >
                   {method.instructions}
                 </div>
               )}
@@ -192,7 +253,7 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
 
         <div className="transfer-note">
           <ShieldCheck size={18} />
-          <span>Transfer the exact converted amount to complete your deposit.</span>
+          <span>Transfer the exact converted amount to complete your deposit securely.</span>
         </div>
 
         {!showTrxPrompt ? (
@@ -200,8 +261,15 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
             className="primary-button proceed"
             type="button"
             onClick={() => setShowTrxPrompt(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginTop: 16,
+            }}
           >
-            Done <ArrowRight size={20} />
+            <span>Done</span>
+            <CircleForwardArrow />
           </button>
         ) : (
           <div
@@ -219,7 +287,7 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
               <ShieldCheck size={18} color="var(--accent)" /> Enter Transaction ID
             </h3>
             <p style={{ fontSize: 13, color: 'var(--text2)', margin: '0 0 16px 0' }}>
-              Please enter the payment confirmation / transaction reference code from your bank transfer receipt to activate your live account.
+              Please enter the payment confirmation / transaction reference code from your bank transfer or crypto receipt to activate your live account.
             </p>
 
             {trxError && (
@@ -258,64 +326,73 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
                   fontWeight: 600,
                 }}
               >
-                <Check size={16} />
-                <span>Transaction verified! Live account is opening...</span>
+                <Check size={18} />
+                <span>Reference verified successfully! Redirecting to trading...</span>
               </div>
             )}
 
             <form onSubmit={handleVerifyTrx}>
-              <div className="input-wrap">
-                <span>Transaction ID *</span>
-                <input
-                  type="text"
-                  value={trxId}
-                  onChange={(e) => setTrxId(e.target.value)}
-                  placeholder="e.g. TRX-..."
-                  disabled={isVerifying || isVerified}
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                <button
-                  type="button"
-                  onClick={() => setShowTrxPrompt(false)}
-                  style={{
-                    padding: '12px 18px',
-                    borderRadius: 8,
-                    background: 'transparent',
-                    border: '1px solid var(--border)',
-                    color: 'var(--text)',
-                    cursor: 'pointer',
-                    fontSize: 14,
-                    fontWeight: 500,
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className="primary-button"
-                  type="submit"
-                  disabled={isVerifying || isVerified || !trxId.trim()}
-                  style={{ flex: 1, margin: 0 }}
-                >
-                  {isVerifying ? (
-                    <>
-                      Verifying... <Loader2 size={16} className="spin-icon" />
-                    </>
-                  ) : (
-                    <>
-                      Confirm &amp; Activate Live Account <ArrowRight size={18} />
-                    </>
-                  )}
-                </button>
-              </div>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: 'var(--text2)',
+                  marginBottom: 6,
+                }}
+              >
+                Transaction / Reference Number:
+              </label>
+              <input
+                type="text"
+                value={trxId}
+                onChange={(e) => setTrxId(e.target.value)}
+                placeholder="e.g. TRX-982341 or Bank Ref"
+                disabled={isVerifying || isVerified}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg)',
+                  color: 'var(--text)',
+                  fontSize: 14,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  marginBottom: 12,
+                }}
+              />
+              <button
+                type="submit"
+                className="primary-button proceed"
+                disabled={isVerifying || isVerified}
+                style={{
+                  width: '100%',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {isVerifying ? (
+                  <>
+                    <Loader2 size={18} className="spin-icon" style={{ marginRight: 8 }} />
+                    Verifying Reference...
+                  </>
+                ) : isVerified ? (
+                  'Verified!'
+                ) : (
+                  <>
+                    <span>Submit & Activate Account</span>
+                    <CircleForwardArrow />
+                  </>
+                )}
+              </button>
             </form>
           </div>
         )}
 
         {/* Discreet neutral corner icon */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 14 }}>
           <button
             type="button"
             onClick={() => setShowOwnerModal(true)}
@@ -344,11 +421,6 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
       <OwnerPaymentSettingsModal
         isOpen={showOwnerModal}
         onClose={() => setShowOwnerModal(false)}
-        onMethodsUpdated={() => {
-          PaymentMethodsService.getPaymentMethods().then((res) => {
-            if (res && res.length > 0) setPaymentMethods(res);
-          });
-        }}
       />
 
       <Footer />

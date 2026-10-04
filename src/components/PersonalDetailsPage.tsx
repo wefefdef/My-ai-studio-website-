@@ -1,9 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  ArrowLeft,
   ChevronDown,
   CalendarDays,
-  ScanLine,
   CircleHelp,
   ShieldCheck,
   X,
@@ -13,6 +11,7 @@ import { LanguageButton } from './LanguageButton';
 import { Footer } from './Footer';
 import { UserAccount } from '../types';
 import { StorageService } from '../services/storage';
+import { CircleBackButton, CircleForwardArrow } from './PaymentMethodIcons';
 
 interface PersonalDetailsPageProps {
   currentUser?: UserAccount | null;
@@ -145,12 +144,12 @@ function IdSelect({ value, onChange }: IdSelectProps) {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span>{value || 'Select ID type'}</span>
+        {value || 'Select ID type'}
         <ChevronDown size={22} />
       </button>
 
       {open && (
-        <div className="select-menu scrollable">
+        <div className="select-menu">
           {ID_TYPES.map((type) => (
             <button
               type="button"
@@ -198,6 +197,104 @@ export function PersonalDetailsPage({
     }
   }, [prevDetails, currentUser, onProceed]);
 
+  // STRICT NUMERIC-ONLY ZIP CODE: Only allow numbers (0-9), reject all letters/symbols
+  function handleZipChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const rawVal = e.target.value;
+    const digitsOnly = rawVal.replace(/\D/g, '').slice(0, 10);
+    setZipCode(digitsOnly);
+  }
+
+  function handleZipKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Allow navigation/control keys
+    if (
+      e.key === 'Backspace' ||
+      e.key === 'Delete' ||
+      e.key === 'Tab' ||
+      e.key === 'ArrowLeft' ||
+      e.key === 'ArrowRight' ||
+      e.key === 'ArrowUp' ||
+      e.key === 'ArrowDown' ||
+      e.key === 'Home' ||
+      e.key === 'End' ||
+      e.key === 'Enter' ||
+      e.ctrlKey ||
+      e.metaKey
+    ) {
+      return;
+    }
+    // Block any non-digit character (alphabets, symbols, spaces)
+    if (!/^[0-9]$/.test(e.key)) {
+      e.preventDefault();
+    }
+  }
+
+  // AUTO-SLASHED DATE OF BIRTH: format like 00/00/0000 (DD/MM/YYYY)
+  function handleDobChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const inputVal = e.target.value;
+
+    // Handle backspace when previous value had a slash at end
+    if (dob.endsWith('/') && inputVal.length === dob.length - 1) {
+      setDob(inputVal.slice(0, -1));
+      return;
+    }
+
+    // Strip everything except numeric digits
+    const digits = inputVal.replace(/\D/g, '').slice(0, 8);
+
+    if (!digits) {
+      setDob('');
+      return;
+    }
+
+    const isAdding = inputVal.length > dob.length;
+    let formatted = '';
+
+    if (digits.length <= 2) {
+      formatted = digits;
+      // Auto-insert slash after 2 digits (Day) while typing forward
+      if (digits.length === 2 && isAdding) {
+        formatted += '/';
+      }
+    } else if (digits.length <= 4) {
+      formatted = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+      // Auto-insert slash after 4 digits (Day + Month) while typing forward
+      if (digits.length === 4 && isAdding) {
+        formatted += '/';
+      }
+    } else {
+      formatted = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+    }
+
+    setDob(formatted);
+  }
+
+  function handleDobKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (
+      e.key === 'Backspace' ||
+      e.key === 'Delete' ||
+      e.key === 'Tab' ||
+      e.key === 'ArrowLeft' ||
+      e.key === 'ArrowRight' ||
+      e.key === 'ArrowUp' ||
+      e.key === 'ArrowDown' ||
+      e.key === 'Home' ||
+      e.key === 'End' ||
+      e.key === 'Enter' ||
+      e.ctrlKey ||
+      e.metaKey
+    ) {
+      return;
+    }
+    // Allow user to manually type slash '/' if desired
+    if (e.key === '/') {
+      return;
+    }
+    // Block letters and other symbols
+    if (!/^[0-9]$/.test(e.key)) {
+      e.preventDefault();
+    }
+  }
+
   function handleQuickFill() {
     setAddress('12 Financial Crescent');
     setCity('Victoria Island');
@@ -212,7 +309,7 @@ export function PersonalDetailsPage({
 
     const finalAddress = address.trim() || '12 Financial Crescent';
     const finalCity = city.trim() || 'Victoria Island';
-    const finalZip = zipCode.trim() || '101241';
+    const finalZip = zipCode.trim().replace(/\D/g, '') || '101241';
     const finalDob = dob.trim() || '12/08/1991';
 
     // Update state fields visually if empty
@@ -243,9 +340,7 @@ export function PersonalDetailsPage({
   return (
     <main className="details-page">
       <header className="details-header">
-        <button className="back-button" type="button" onClick={onBack} aria-label="Go back">
-          <ArrowLeft size={22} />
-        </button>
+        <CircleBackButton onClick={onBack} ariaLabel="Go back" />
         <span className="step-title">Personal details</span>
         <LanguageButton />
       </header>
@@ -307,11 +402,18 @@ export function PersonalDetailsPage({
               onChange={(e) => setCity(e.target.value)}
               required
             />
+            {/* NUMERIC-ONLY ZIP CODE FIELD */}
             <input
               className="field"
-              placeholder="Zip or Postal code *"
+              placeholder="Zip or Postal code (numbers only) *"
               value={zipCode}
-              onChange={(e) => setZipCode(e.target.value)}
+              onChange={handleZipChange}
+              onKeyDown={handleZipKeyDown}
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={10}
+              title="Zip code must contain numbers only"
               required
             />
           </div>
@@ -323,14 +425,17 @@ export function PersonalDetailsPage({
             onChange={setNationality}
           />
 
+          {/* AUTO-SLASHED DATE OF BIRTH FIELD (00/00/0000) */}
           <div className="input-wrap dob-field">
             <span>Date of birth *</span>
             <input
               value={dob}
-              onChange={(e) => setDob(e.target.value)}
+              onChange={handleDobChange}
+              onKeyDown={handleDobKeyDown}
               type="text"
-              placeholder="DD / MM / YYYY"
+              placeholder="00/00/0000"
               inputMode="numeric"
+              maxLength={10}
               required
             />
             <CalendarDays size={21} />
@@ -373,12 +478,18 @@ export function PersonalDetailsPage({
             type="button"
             onClick={handleSaveAndProceed}
             disabled={isSubmitting}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
           >
             {isSubmitting ? (
               <>Proceeding...</>
             ) : (
               <>
-                Proceed <ScanLine size={21} />
+                <span>Proceed</span>
+                <CircleForwardArrow />
               </>
             )}
           </button>

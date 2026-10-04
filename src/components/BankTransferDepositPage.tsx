@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Banknote, ArrowRight, LoaderCircle, SlidersHorizontal } from 'lucide-react';
+import { Banknote, LoaderCircle, SlidersHorizontal } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';
 import { Footer } from './Footer';
 import { OwnerPaymentSettingsModal } from './OwnerPaymentSettingsModal';
+import { BankTransferSticker, CircleBackButton, CircleForwardArrow } from './PaymentMethodIcons';
 
 interface BankTransferDepositPageProps {
   method: string;
@@ -48,14 +49,7 @@ export function BankTransferDepositPage({
     return (
       <main className="payment-page">
         <header className="payment-header">
-          <button
-            className="back-button visible"
-            type="button"
-            onClick={onBack}
-            aria-label="Go back"
-          >
-            <ArrowLeft size={22} />
-          </button>
+          <CircleBackButton onClick={onBack} ariaLabel="Go back" />
           <BrandMark onClick={onBack} />
           <LanguageButton />
         </header>
@@ -83,14 +77,7 @@ export function BankTransferDepositPage({
   return (
     <main className="payment-page">
       <header className="payment-header">
-        <button
-          className="back-button visible"
-          type="button"
-          onClick={onBack}
-          aria-label="Go back"
-        >
-          <ArrowLeft size={22} />
-        </button>
+        <CircleBackButton onClick={onBack} ariaLabel="Go back" />
         <BrandMark onClick={onBack} />
         <LanguageButton />
       </header>
@@ -98,6 +85,12 @@ export function BankTransferDepositPage({
       <section className="payment-shell deposit-shell">
         <p className="eyebrow">ALTERNATIVE PAYMENT</p>
         <h1>Secure deposit using {methodName}</h1>
+        
+        {/* Official Bank Transfer sticker badge */}
+        <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0 16px' }}>
+          <BankTransferSticker size="md" />
+        </div>
+
         <p className="payment-intro">
           Choose an amount to continue with a secure local bank transfer.
         </p>
@@ -155,8 +148,14 @@ export function BankTransferDepositPage({
             type="button"
             onClick={handleStartDeposit}
             disabled={!amount || amount < 1 || !accepted}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
           >
-            Deposit <ArrowRight size={20} />
+            <span>Deposit</span>
+            <CircleForwardArrow />
           </button>
 
           {/* Discreet neutral corner icon */}

@@ -37,28 +37,132 @@
   transform: translateX(3px);
 }
 
-.back-button {
+/* Standardized Circular Navigational Arrows (High Visibility & Accessibility) */
+.back-button,
+.circle-nav-button,
+.circle-nav-back {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
   cursor: pointer !important;
-  padding: 8px !important;
-  border-radius: 8px !important;
-  transition: background-color 0.2s ease, transform 0.2s ease, color 0.2s ease !important;
+  width: 44px !important;
+  height: 44px !important;
+  min-width: 44px !important;
+  min-height: 44px !important;
+  border-radius: 50% !important;
+  border: 1px solid var(--border, #e2e8f0) !important;
+  background: var(--card-bg, #ffffff) !important;
+  color: var(--text, #111820) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  padding: 0 !important;
+  outline: none !important;
+  flex-shrink: 0 !important;
 }
 
-.back-button:hover {
-  background: var(--accent-light, #e8f1fc) !important;
-  color: var(--accent, #1a6dd4) !important;
+[data-theme='dark'] .back-button,
+[data-theme='dark'] .circle-nav-button,
+[data-theme='dark'] .circle-nav-back {
+  background: #1e293b !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  color: #f8fafc !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35) !important;
 }
 
-.back-button:hover svg {
-  transform: translateX(-3px);
+.back-button:hover,
+.circle-nav-button:hover,
+.circle-nav-back:hover {
+  background: var(--accent, #1a6dd4) !important;
+  color: #ffffff !important;
+  border-color: var(--accent, #1a6dd4) !important;
+  box-shadow: 0 4px 14px rgba(26, 109, 212, 0.35) !important;
+  transform: scale(1.06) !important;
 }
 
-.back-button svg {
+.back-button:hover svg,
+.circle-nav-button:hover svg,
+.circle-nav-back:hover svg {
+  transform: translateX(-2px) !important;
+  color: #ffffff !important;
+}
+
+.back-button:focus-visible,
+.circle-nav-button:focus-visible,
+.circle-nav-back:focus-visible {
+  outline: 2px solid var(--accent, #1a6dd4) !important;
+  outline-offset: 2px !important;
+}
+
+.back-button svg,
+.circle-nav-button svg,
+.circle-nav-back svg {
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   flex-shrink: 0;
+}
+
+/* Method Carousel Scroll Arrows - Standardized Circular Design */
+.method-scroll-arrow {
+  width: 42px !important;
+  height: 42px !important;
+  min-width: 42px !important;
+  min-height: 42px !important;
+  border-radius: 50% !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border: 1px solid var(--border, #e2e8f0) !important;
+  background: var(--card-bg, #ffffff) !important;
+  color: var(--text, #111820) !important;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08) !important;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  outline: none !important;
+}
+
+[data-theme='dark'] .method-scroll-arrow {
+  background: #1e293b !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  color: #f8fafc !important;
+}
+
+.method-scroll-arrow:hover:not(:disabled) {
+  background: var(--accent, #1a6dd4) !important;
+  color: #ffffff !important;
+  border-color: var(--accent, #1a6dd4) !important;
+  transform: scale(1.08) !important;
+  box-shadow: 0 6px 16px rgba(26, 109, 212, 0.35) !important;
+}
+
+.method-scroll-arrow:focus-visible {
+  outline: 2px solid var(--accent, #1a6dd4) !important;
+  outline-offset: 2px !important;
+}
+
+/* Circular Forward Navigation Action Arrow Badge */
+.circle-nav-forward-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  min-width: 30px !important;
+  min-height: 30px !important;
+  border-radius: 50% !important;
+  background: rgba(255, 255, 255, 0.24) !important;
+  color: currentColor !important;
+  margin-left: 10px !important;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  flex-shrink: 0 !important;
+}
+
+.primary-button:hover:not(:disabled) .circle-nav-forward-badge,
+.deposit-button:hover:not(:disabled) .circle-nav-forward-badge,
+.proceed:hover:not(:disabled) .circle-nav-forward-badge {
+  background: #ffffff !important;
+  color: var(--accent, #1a6dd4) !important;
+  transform: translateX(3px) scale(1.08) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18) !important;
 }
 
 /* Bank Details Rows: smooth spacing between label, value, and copy symbol */

@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Banknote, ArrowRight, X } from 'lucide-react';
+import { Banknote, X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';
 import { Footer } from './Footer';
+import { CircleBackButton, CircleForwardArrow } from './PaymentMethodIcons';
 
 interface WithdrawalPageProps {
   onBack: () => void;
@@ -31,14 +32,7 @@ export function WithdrawalPage({ onBack }: WithdrawalPageProps) {
   return (
     <main className="payment-page">
       <header className="payment-header">
-        <button
-          className="back-button visible"
-          type="button"
-          onClick={onBack}
-          aria-label="Go back"
-        >
-          <ArrowLeft size={22} />
-        </button>
+        <CircleBackButton onClick={onBack} ariaLabel="Go back" />
         <BrandMark onClick={onBack} />
         <LanguageButton />
       </header>
@@ -69,15 +63,13 @@ export function WithdrawalPage({ onBack }: WithdrawalPageProps) {
             />
           </label>
 
-          <h3 className="withdraw-bank-title">Bank details</h3>
-
           <div className="input-wrap">
             <span>Bank name</span>
             <input
               type="text"
               value={bankName}
               onChange={(e) => setBankName(e.target.value)}
-              placeholder="Enter bank name"
+              placeholder="Enter your bank name"
             />
           </div>
 
@@ -114,9 +106,15 @@ export function WithdrawalPage({ onBack }: WithdrawalPageProps) {
             type="button"
             onClick={handleWithdraw}
             disabled={!isValid}
-            style={{ marginTop: 20 }}
+            style={{
+              marginTop: 20,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
           >
-            Withdraw <ArrowRight size={20} />
+            <span>Withdraw</span>
+            <CircleForwardArrow />
           </button>
         </div>
       </section>

@@ -1,10 +1,7 @@
 import React, { useState, useRef } from 'react';
 import {
-  ArrowLeft,
   CreditCard,
   Landmark,
-  ChevronLeft,
-  ArrowRight,
   Check,
   ShieldCheck,
   Info,
@@ -15,6 +12,18 @@ import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';
 import { Footer } from './Footer';
 import { OwnerPaymentSettingsModal } from './OwnerPaymentSettingsModal';
+import {
+  VisaMastercardBadge,
+  BankTransferSticker,
+  BankInstitutionIcon,
+  CryptoClusterIcon,
+  BitcoinIcon,
+  TetherIcon,
+  EthereumIcon,
+  CircleBackButton,
+  CircleForwardArrow,
+  CircleScrollArrow,
+} from './PaymentMethodIcons';
 
 interface PaymentMethodsPageProps {
   onBack: () => void;
@@ -27,13 +36,12 @@ interface PaymentMethodItem {
   key: string;
   label: string;
   sub: string;
-  logoClass?: string;
-  logoText?: string;
+  type: 'bank' | 'visa-mastercard' | 'crypto' | 'skrill' | 'gpay' | 'applepay';
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
   skrill: 'Skrill',
-  cryptopay: 'CryptoPay',
+  cryptopay: 'CryptoPay (BTC, USDT, ETH)',
   visa: 'Visa / Mastercard',
   gpay: 'Google Pay',
   applepay: 'Apple Pay',
@@ -78,7 +86,7 @@ export function PaymentMethodsPage({
   function handleScroll(direction: 'left' | 'right') {
     if (scrollRef.current) {
       scrollRef.current.scrollBy({
-        left: direction === 'left' ? -200 : 200,
+        left: direction === 'left' ? -220 : 220,
         behavior: 'smooth',
       });
     }
@@ -91,37 +99,38 @@ export function PaymentMethodsPage({
 
   const mainMethods: PaymentMethodItem[] = [
     {
-      key: 'skrill',
-      logoClass: 'skrill',
-      logoText: 'Skrill',
-      label: 'Skrill',
-      sub: 'Online wallet',
-    },
-    {
-      key: 'cryptopay',
-      logoClass: 'crypto-logo',
-      logoText: 'CP',
-      label: 'CryptoPay',
-      sub: 'Cryptocurrency',
+      key: 'bank-transfer-ng',
+      type: 'bank',
+      label: 'Bank Transfer',
+      sub: 'Direct bank deposit',
     },
     {
       key: 'visa',
-      logoClass: 'visa-logo',
-      logoText: 'VISA',
+      type: 'visa-mastercard',
       label: 'Visa / Mastercard',
       sub: 'Credit or Debit card',
     },
     {
+      key: 'cryptopay',
+      type: 'crypto',
+      label: 'CryptoPay',
+      sub: 'BTC, USDT, ETH, USDC',
+    },
+    {
+      key: 'skrill',
+      type: 'skrill',
+      label: 'Skrill',
+      sub: 'Online wallet',
+    },
+    {
       key: 'gpay',
-      logoClass: 'gpay-logo',
-      logoText: 'G',
+      type: 'gpay',
       label: 'Google Pay',
       sub: 'Digital wallet',
     },
     {
       key: 'applepay',
-      logoClass: 'apple-logo',
-      logoText: 'AP',
+      type: 'applepay',
       label: 'Apple Pay',
       sub: 'Digital wallet',
     },
@@ -130,24 +139,68 @@ export function PaymentMethodsPage({
   const altMethods: PaymentMethodItem[] = [
     {
       key: 'bank-transfer-ng',
+      type: 'bank',
       label: 'Bank Transfer NG',
       sub: 'Local bank deposit',
     },
     {
       key: 'bank-transfer-e',
+      type: 'bank',
       label: 'Bank Transfer E',
-      sub: 'Electronic bank deposit',
+      sub: 'Electronic bank transfer',
     },
   ];
 
   const currentMethods = tab === 'main' ? mainMethods : altMethods;
 
+  function renderMethodVisual(m: PaymentMethodItem) {
+    if (m.type === 'bank') {
+      return (
+        <span className="method-logo badge-wrap" style={{ padding: '3px 6px' }}>
+          <BankInstitutionIcon size={32} />
+        </span>
+      );
+    }
+
+    if (m.type === 'visa-mastercard') {
+      return (
+        <span className="method-logo badge-wrap" style={{ padding: '4px 6px' }}>
+          <VisaMastercardBadge size="sm" />
+        </span>
+      );
+    }
+
+    if (m.type === 'crypto') {
+      return (
+        <span className="method-logo badge-wrap" style={{ padding: '3px 8px' }}>
+          <CryptoClusterIcon size={30} />
+        </span>
+      );
+    }
+
+    if (m.type === 'skrill') {
+      return <span className="method-logo skrill">Skrill</span>;
+    }
+
+    if (m.type === 'gpay') {
+      return <span className="method-logo gpay-logo">G</span>;
+    }
+
+    if (m.type === 'applepay') {
+      return <span className="method-logo apple-logo">AP</span>;
+    }
+
+    return (
+      <span className="method-logo bank-logo">
+        <Landmark size={22} />
+      </span>
+    );
+  }
+
   return (
     <main className="payment-page">
       <header className="payment-header">
-        <button className="back-button visible" type="button" onClick={onBack} aria-label="Go back">
-          <ArrowLeft size={22} />
-        </button>
+        <CircleBackButton onClick={onBack} ariaLabel="Go back" />
         <BrandMark onClick={onBack} />
         <LanguageButton />
       </header>
@@ -156,7 +209,7 @@ export function PaymentMethodsPage({
         <p className="eyebrow">FUND YOUR ACCOUNT</p>
         <h1>Choose how to deposit</h1>
         <p className="payment-intro">
-          Select a secure payment method to add funds to your account.
+          Select a verified payment method to securely add funds to your trading account.
         </p>
 
         <div className="payment-tabs">
@@ -165,7 +218,7 @@ export function PaymentMethodsPage({
             type="button"
             onClick={() => {
               setTab('main');
-              setSelectedMethod(null);
+              setSelectedMethod('bank-transfer-ng');
               setSkrillWarning(false);
             }}
           >
@@ -176,7 +229,7 @@ export function PaymentMethodsPage({
             type="button"
             onClick={() => {
               setTab('alternative');
-              setSelectedMethod(null);
+              setSelectedMethod('bank-transfer-ng');
               setSkrillWarning(false);
             }}
           >
@@ -185,52 +238,74 @@ export function PaymentMethodsPage({
         </div>
 
         <div className="method-scroll-wrap">
-          <button
-            className="method-scroll-arrow left"
-            type="button"
+          <CircleScrollArrow
+            direction="left"
             onClick={() => handleScroll('left')}
-            aria-label="Scroll left"
-          >
-            <ChevronLeft size={20} />
-          </button>
+            ariaLabel="Scroll payment methods left"
+          />
 
           <div className="method-scroll" ref={scrollRef}>
-            {currentMethods.map((m) => (
-              <button
-                className={selectedMethod === m.key ? 'method-card-h selected' : 'method-card-h'}
-                type="button"
-                key={m.key}
-                onClick={() => handleSelect(m.key)}
-              >
-                {'logoClass' in m ? (
-                  <span className={`method-logo ${m.logoClass}`}>{m.logoText}</span>
-                ) : (
-                  <span className="method-logo bank-logo">
-                    <Landmark size={22} />
-                  </span>
-                )}
-                <strong>{m.label}</strong>
-                <span className="method-sub">{m.sub}</span>
-                {selectedMethod === m.key && (
-                  <Check className="method-check-badge" size={16} />
-                )}
-              </button>
-            ))}
+            {currentMethods.map((m) => {
+              const isSelected = selectedMethod === m.key;
+              return (
+                <button
+                  className={isSelected ? 'method-card-h selected' : 'method-card-h'}
+                  type="button"
+                  key={m.key + m.type}
+                  onClick={() => handleSelect(m.key)}
+                  style={{ minWidth: 154 }}
+                >
+                  {renderMethodVisual(m)}
+                  <strong style={{ marginTop: 2 }}>{m.label}</strong>
+                  <span className="method-sub">{m.sub}</span>
+                  {isSelected && (
+                    <Check className="method-check-badge" size={16} />
+                  )}
+                </button>
+              );
+            })}
           </div>
 
-          <button
-            className="method-scroll-arrow right"
-            type="button"
+          <CircleScrollArrow
+            direction="right"
             onClick={() => handleScroll('right')}
-            aria-label="Scroll right"
-          >
-            <ArrowRight size={20} />
-          </button>
+            ariaLabel="Scroll payment methods right"
+          />
         </div>
 
+        {/* Selected method dynamic security identifier */}
         {selectedMethod && !skrillWarning && !isComingSoon && (
-          <div className="secure-deposit-label fade-in">
-            <ShieldCheck size={18} /> Secure deposit using {PAYMENT_LABELS[selectedMethod]}
+          <div
+            className="secure-deposit-label fade-in"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+              padding: '12px 18px',
+              borderRadius: 12,
+              background: 'var(--card-bg, #ffffff)',
+              border: '1px solid var(--border, #e2e8f0)',
+              marginTop: 18,
+              fontSize: 13,
+              fontWeight: 600,
+              color: 'var(--text, #111820)',
+              boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+            }}
+          >
+            <ShieldCheck size={20} color="#16a34a" />
+            <span>Secure deposit using {PAYMENT_LABELS[selectedMethod]}</span>
+            {(selectedMethod === 'bank-transfer-ng' || selectedMethod === 'bank-transfer-e') && (
+              <BankTransferSticker size="sm" />
+            )}
+            {selectedMethod === 'visa' && <VisaMastercardBadge size="sm" />}
+            {selectedMethod === 'cryptopay' && (
+              <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                <BitcoinIcon size={18} />
+                <TetherIcon size={18} />
+                <EthereumIcon size={18} />
+              </div>
+            )}
           </div>
         )}
 
@@ -246,13 +321,21 @@ export function PaymentMethodsPage({
           </div>
         )}
 
+        {/* Standardized Circular Action Arrow on Proceed */}
         <button
           className="primary-button proceed"
           type="button"
           onClick={handleContinue}
           disabled={isComingSoon}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginTop: 20,
+          }}
         >
-          Continue <ArrowRight size={20} />
+          <span>Continue</span>
+          <CircleForwardArrow />
         </button>
 
         <button className="not-now-btn" type="button" onClick={onNotNow}>

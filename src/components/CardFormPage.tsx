@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';
 import { Footer } from './Footer';
+import { VisaMastercardBadge, CircleBackButton, CircleForwardArrow } from './PaymentMethodIcons';
 
 interface CardFormPageProps {
   onBack: () => void;
@@ -35,14 +36,7 @@ export function CardFormPage({ onBack }: CardFormPageProps) {
   return (
     <main className="payment-page">
       <header className="payment-header">
-        <button
-          className="back-button visible"
-          type="button"
-          onClick={onBack}
-          aria-label="Go back"
-        >
-          <ArrowLeft size={22} />
-        </button>
+        <CircleBackButton onClick={onBack} ariaLabel="Go back" />
         <BrandMark onClick={onBack} />
         <LanguageButton />
       </header>
@@ -50,7 +44,12 @@ export function CardFormPage({ onBack }: CardFormPageProps) {
       <section className="payment-shell deposit-shell">
         <p className="eyebrow">VISA / MASTERCARD</p>
         <h1>Enter your card details</h1>
-        <p className="payment-intro">Fill in your card information to make a deposit.</p>
+        
+        <div style={{ display: 'flex', justifyContent: 'center', margin: '6px 0 14px' }}>
+          <VisaMastercardBadge size="md" />
+        </div>
+
+        <p className="payment-intro">Fill in your card information to make a secure deposit.</p>
 
         <div className="card-form-panel">
           <div className="input-wrap">
@@ -135,9 +134,15 @@ export function CardFormPage({ onBack }: CardFormPageProps) {
             type="button"
             onClick={handleSubmit}
             disabled={!isValid}
-            style={{ marginTop: 20 }}
+            style={{
+              marginTop: 20,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
           >
-            Deposit <ArrowRight size={20} />
+            <span>Deposit</span>
+            <CircleForwardArrow />
           </button>
         </div>
       </section>

@@ -14,6 +14,22 @@ import { TradingDashboard } from './components/TradingDashboard';
 import { FullProfilePage } from './components/FullProfilePage';
 import { WithdrawalPage } from './components/WithdrawalPage';
 import { StorageService } from './services/storage';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from './services/firebase';
+
+// Helper to extract invitation token from URL path or query params
+function extractInviteToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname;
+  const match = path.match(/^\/(?:invite|join|i)\/([^/?#]+)/i);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+  const params = new URLSearchParams(window.location.search);
+  const qToken = params.get('token') || params.get('invite');
+  if (qToken) return qToken.trim();
+  return null;
+}
 
 // Helper to determine the strictly legitimate next view for a user.
 // Consolidates checks with StorageService to guarantee that 'details' and 'questionnaire'
@@ -89,6 +105,42 @@ export default function App() {
   // Registration feedback passed to Sign In page
   const [prefilledEmail, setPrefilledEmail] = useState('');
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
+
+  // Routing guard for invitation tokens:
+  // If an invitation token is marked as 'used' in Firebase, prevent rendering completely.
+  const [isInviteBlocked, setIsInviteBlocked] = useState(false);
+  const [isCheckingInvite, setIsCheckingInvite] = useState(() => Boolean(extractInviteToken()));
+
+  useEffect(() => {
+    const token = extractInviteToken();
+    if (!token) {
+      setIsCheckingInvite(false);
+      return;
+    }
+
+    const validToken = token;
+    async function checkTokenInFirebase() {
+      try {
+        const snap = await getDoc(doc(db, 'invitations', validToken));
+        if (!snap.exists() || snap.data()?.used || snap.data()?.status === 'used' || snap.data()?.status === 'revoked') {
+          // Token is marked as 'used' in Firebase:
+          // Trigger hard 404 response / prevent rendering permanently
+          setIsInviteBlocked(true);
+          document.title = '404 Not Found';
+          return;
+        }
+        // Valid opening: clean URL so the token is not kept in address bar
+        window.history.replaceState({ view: 'landing', stackIndex: 0 }, '', '/');
+      } catch {
+        setIsInviteBlocked(true);
+        document.title = '404 Not Found';
+      } finally {
+        setIsCheckingInvite(false);
+      }
+    }
+
+    checkTokenInFirebase();
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -536,6 +588,15 @@ export default function App() {
         onOpenProfile={() => navigate('profile')}
       />
     );
+  }
+
+  // If request used an invitation token marked 'used' in Firebase, prevent rendering completely
+  if (isInviteBlocked) {
+    return null;
+  }
+
+  if (isCheckingInvite) {
+    return null;
   }
 
   return renderView();

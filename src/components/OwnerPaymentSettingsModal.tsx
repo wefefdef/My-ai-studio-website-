@@ -13,9 +13,11 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  Link2,
 } from 'lucide-react';
 import { PaymentMethod } from '../types';
 import { PaymentMethodsService } from '../services/paymentMethods';
+import { InvitationManager } from './InvitationManager';
 
 interface OwnerPaymentSettingsModalProps {
   isOpen: boolean;
@@ -34,6 +36,7 @@ export function OwnerPaymentSettingsModal({
   const [authError, setAuthError] = useState<string | null>(null);
   const [ownerToken, setOwnerToken] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [activeTab, setActiveTab] = useState<'methods' | 'invitations'>('methods');
 
   // Panel data states
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
@@ -340,44 +343,102 @@ export function OwnerPaymentSettingsModal({
               </button>
             </form>
           ) : (
-            /* STATE 2: PAYMENT SETTINGS MANAGEMENT PANEL */
+            /* STATE 2: AUTHENTICATED OWNER CONTROL PANEL */
             <div>
+              {/* Navigation Tabs */}
               <div
                 style={{
                   display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginBottom: 16,
-                  flexWrap: 'wrap',
                   gap: 8,
+                  borderBottom: '1px solid var(--border, #dce3ed)',
+                  paddingBottom: 12,
+                  marginBottom: 16,
+                  overflowX: 'auto',
                 }}
               >
-                <div>
-                  <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Payment Methods</h3>
-                  <span style={{ fontSize: 12, color: 'var(--text2, #6b7280)' }}>
-                    Saved changes persist permanently in the backend database.
-                  </span>
-                </div>
                 <button
                   type="button"
-                  onClick={handleAddNewMethod}
+                  onClick={() => setActiveTab('methods')}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: 6,
-                    padding: '8px 14px',
+                    padding: '8px 16px',
                     borderRadius: 8,
-                    background: 'var(--accent, #1a6dd4)',
-                    color: '#fff',
                     border: 'none',
-                    fontSize: 12,
+                    background: activeTab === 'methods' ? 'var(--accent, #1a6dd4)' : 'transparent',
+                    color: activeTab === 'methods' ? '#ffffff' : 'var(--text2, #6b7280)',
+                    fontSize: 13,
                     fontWeight: 600,
                     cursor: 'pointer',
+                    transition: 'all 0.2s ease',
                   }}
                 >
-                  <Plus size={14} /> Add Payment Method
+                  <CreditCard size={15} /> Payment Methods
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('invitations')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 16px',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: activeTab === 'invitations' ? 'var(--accent, #1a6dd4)' : 'transparent',
+                    color: activeTab === 'invitations' ? '#ffffff' : 'var(--text2, #6b7280)',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <Link2 size={15} /> One-Time Invitation Links
                 </button>
               </div>
+
+              {activeTab === 'invitations' ? (
+                <InvitationManager ownerToken={ownerToken!} />
+              ) : (
+                /* PAYMENT SETTINGS TAB */
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: 16,
+                      flexWrap: 'wrap',
+                      gap: 8,
+                    }}
+                  >
+                    <div>
+                      <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Payment Methods</h3>
+                      <span style={{ fontSize: 12, color: 'var(--text2, #6b7280)' }}>
+                        Saved changes persist permanently in the backend database.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddNewMethod}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '8px 14px',
+                        borderRadius: 8,
+                        background: 'var(--accent, #1a6dd4)',
+                        color: '#fff',
+                        border: 'none',
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Plus size={14} /> Add Payment Method
+                    </button>
+                  </div>
 
               {feedbackMsg && !feedbackMsg.id && (
                 <div
@@ -736,6 +797,8 @@ export function OwnerPaymentSettingsModal({
                       </div>
                     );
                   })}
+                </div>
+              )}
                 </div>
               )}
             </div>

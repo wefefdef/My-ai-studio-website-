@@ -20,5 +20,9 @@ service cloud.firestore {
     match /payment_methods/{methodId} {
       allow read, write: if true;
     }
+
+    match /invitations/{token} {
+      allow read, write: if true;
+    }
   }
 }

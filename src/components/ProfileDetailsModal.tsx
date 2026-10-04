@@ -45,9 +45,9 @@ export function ProfileDetailsModal({
   const isLive = user.accountType === 'live';
 
   return (
-    <div className="license-modal-overlay" onClick={onClose}>
+    <div className="app-modal-overlay" onClick={onClose}>
       <div
-        className="license-modal"
+        className="app-modal"
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 640, maxHeight: '90vh', overflowY: 'auto' }}
       >

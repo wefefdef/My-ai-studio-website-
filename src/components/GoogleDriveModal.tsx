@@ -140,7 +140,6 @@ export function GoogleDriveModal({ open, onClose, currentUser }: GoogleDriveModa
       csv += `"Account Balance","${(balance ?? 1000).toFixed(2)} USD"\n`;
       csv += `"Account Mode","${(currentUser?.accountType || 'live').toUpperCase()}"\n`;
       csv += `"Generated At","${new Date().toLocaleString()}"\n`;
-      csv += `"Licensed By","Central Bank of Nigeria (CBN), SEC Nigeria, CAC, FCA"\n`;
 
       const uploaded = await uploadTextToDrive(fileName, csv, 'text/csv');
       setSuccessMsg(`Uploaded "${uploaded.name}" to your Google Drive!`);
@@ -240,9 +239,9 @@ Timestamp: ${new Date().toLocaleString()}
   };
 
   return (
-    <div className="license-modal-overlay" onClick={onClose} style={{ zIndex: 10000 }}>
+    <div className="app-modal-overlay" onClick={onClose} style={{ zIndex: 10000 }}>
       <div
-        className="license-modal"
+        className="app-modal"
         onClick={(e) => e.stopPropagation()}
         style={{ maxWidth: 680, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
       >
@@ -550,7 +549,7 @@ Timestamp: ${new Date().toLocaleString()}
                   <Shield size={20} style={{ flexShrink: 0, color: '#34A853' }} />
                   <div>
                     <div style={{ fontWeight: 700 }}>Backup Profile Dossier</div>
-                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>Store KYC & license details</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>Store KYC &amp; profile details</div>
                   </div>
                 </button>
               </div>
@@ -769,12 +768,12 @@ Timestamp: ${new Date().toLocaleString()}
       {/* MANDATORY USER CONFIRMATION MODAL FOR DESTRUCTIVE OPERATION */}
       {fileToDelete && (
         <div
-          className="license-modal-overlay"
+          className="app-modal-overlay"
           style={{ zIndex: 10001, background: 'rgba(0,0,0,0.65)' }}
           onClick={() => !isDeleting && setFileToDelete(null)}
         >
           <div
-            className="license-modal"
+            className="app-modal"
             style={{ maxWidth: 440, padding: 24 }}
             onClick={(e) => e.stopPropagation()}
           >

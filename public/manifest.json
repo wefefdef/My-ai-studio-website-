@@ -1,7 +1,7 @@
 {
   "name": "Immediate — Secure Multi-Asset Trading Platform",
   "short_name": "Immediate",
-  "description": "Licensed multi-asset trading platform. Trade Forex, Crypto, Commodities, and Stocks with real-time ECN execution.",
+  "description": "Secure multi-asset trading platform. Trade Forex, Crypto, Commodities, and Stocks with real-time ECN execution.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0c1322",

@@ -1,6 +1,6 @@
 {
   "name": "Immediate — Secure Multi-Asset Trading Platform",
-  "description": "Immediate is a licensed multi-asset trading platform offering secure access to global financial markets. Trade stocks, forex, crypto, and commodities with confidence. Regulated by SEC, CBN, CAC, and FCA.",
+  "description": "Immediate is a secure multi-asset trading platform offering access to global financial markets. Trade stocks, forex, crypto, and commodities with confidence.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

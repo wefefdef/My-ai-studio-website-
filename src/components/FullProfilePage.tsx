@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import { UserAccount } from '../types';
 import { BrandMark } from './BrandMark';
-import { LicenseModal } from './LicenseModal';
 import { PasswordModal } from './PasswordModal';
 import { GoogleDriveModal } from './GoogleDriveModal';
 import { Footer } from './Footer';
@@ -49,7 +48,6 @@ export function FullProfilePage({
   onSwitchAccountType,
   onUserUpdated,
 }: FullProfilePageProps) {
-  const [licenseOpen, setLicenseOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
 
@@ -667,47 +665,6 @@ export function FullProfilePage({
               </button>
             </div>
 
-            {/* Regulatory licenses */}
-            <div
-              style={{
-                background: 'var(--bg2)',
-                border: '1px solid var(--border)',
-                borderRadius: 10,
-                padding: 16,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-              }}
-            >
-              <div>
-                <span style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text3)', display: 'block', marginBottom: 4 }}>
-                  Legal &amp; Compliance
-                </span>
-                <span style={{ fontSize: 13, color: 'var(--text2)' }}>View regulatory certificates &amp; licenses</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setLicenseOpen(true)}
-                style={{
-                  marginTop: 12,
-                  padding: '8px 14px',
-                  borderRadius: 6,
-                  border: '1px solid var(--border)',
-                  background: 'var(--card)',
-                  color: 'var(--text)',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 6,
-                }}
-              >
-                <Shield size={14} /> Regulatory Certificate
-              </button>
-            </div>
-
             {/* 24/7 Support */}
             <div
               style={{
@@ -764,7 +721,6 @@ export function FullProfilePage({
         </div>
       </main>
 
-      <LicenseModal open={licenseOpen} onClose={() => setLicenseOpen(false)} />
       <PasswordModal
         open={passwordOpen}
         onClose={() => setPasswordOpen(false)}

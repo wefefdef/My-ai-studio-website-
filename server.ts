@@ -14,6 +14,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  runTransaction,
 } from 'firebase/firestore';
 import firebaseConfig from './firebase-applet-config.json' with { type: 'json' };
 
@@ -79,6 +80,35 @@ function requireOwnerAuth(req: Request, res: Response, next: NextFunction): void
   next();
 }
 
+// Detect chat app / social preview bots (WhatsApp, Zoom, Telegram, Twitter, Discord, Slack, etc.)
+// These crawlers fetch links automatically to generate rich link preview snippets.
+// We must not consume the one-time token for an unfurl bot.
+function isLinkPreviewBot(userAgent: string = ''): boolean {
+  const ua = userAgent.toLowerCase();
+  return (
+    ua.includes('facebookexternalhit') ||
+    ua.includes('whatsapp') ||
+    ua.includes('telegrambot') ||
+    ua.includes('twitterbot') ||
+    ua.includes('slackbot') ||
+    ua.includes('linkedinbot') ||
+    ua.includes('embedly') ||
+    ua.includes('quora link preview') ||
+    ua.includes('discordbot') ||
+    ua.includes('google-structured-data-testing-tool') ||
+    (ua.includes('zoom') && ua.includes('bot'))
+  );
+}
+
+// Invalidate request: terminates with HTTP 404 without showing any message, body, or website
+function sendReal404(res: Response) {
+  res.status(404).set({
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    Pragma: 'no-cache',
+    Expires: '0',
+  }).end();
+}
+
 // Ensure default payment method exists in Firestore database
 async function ensureDefaultPaymentMethods() {
   try {
@@ -100,6 +130,30 @@ async function startServer() {
   const isProd = process.env.NODE_ENV === 'production';
 
   app.use(express.json());
+
+  // Middleware guard: ensures that if any incoming request carries an invitation token
+  // that is marked as 'used' in Firebase, the application triggers a hard 404 response immediately.
+  app.use(async (req: Request, res: Response, next: NextFunction) => {
+    // If request contains query token or invite param
+    const queryToken = ((req.query.token as string) || (req.query.invite as string))?.trim();
+    if (queryToken && !req.originalUrl.startsWith('/api')) {
+      try {
+        const inviteSnap = await getDoc(doc(db, 'invitations', queryToken));
+        if (
+          !inviteSnap.exists() ||
+          inviteSnap.data()?.used ||
+          inviteSnap.data()?.status === 'used' ||
+          inviteSnap.data()?.status === 'revoked'
+        ) {
+          // Hard 404 response: halt request immediately
+          return sendReal404(res);
+        }
+      } catch {
+        return sendReal404(res);
+      }
+    }
+    next();
+  });
 
   // Ensure default data in Firestore
   await ensureDefaultPaymentMethods();
@@ -203,13 +257,175 @@ async function startServer() {
     }
   });
 
+  // 5. Owner List All One-Time Invitations
+  app.get('/api/owner/invitations', requireOwnerAuth, async (req: Request, res: Response) => {
+    try {
+      const colRef = collection(db, 'invitations');
+      const snap = await getDocs(colRef);
+      const list: any[] = [];
+      snap.forEach((d) => {
+        list.push({ ...d.data(), token: d.id });
+      });
+      list.sort((a, b) => (b.createdTimestamp || 0) - (a.createdTimestamp || 0));
+      res.json({ success: true, invitations: list });
+    } catch (err: any) {
+      console.error('Error fetching invitations from Firestore:', err);
+      res.status(500).json({ success: false, error: 'Failed to fetch invitations.' });
+    }
+  });
+
+  // 6. Owner Generate New One-Time Invitation
+  app.post('/api/owner/invitations', requireOwnerAuth, async (req: Request, res: Response) => {
+    try {
+      const { note } = req.body || {};
+      const token = crypto.randomBytes(16).toString('hex');
+      const now = Date.now();
+      const payload = {
+        token,
+        createdAt: new Date().toISOString(),
+        createdTimestamp: now,
+        used: false,
+        usedAt: null,
+        usedByIp: null,
+        usedUserAgent: null,
+        status: 'active',
+        note: (note && typeof note === 'string') ? note.trim() : '',
+      };
+
+      await setDoc(doc(db, 'invitations', token), payload);
+      res.json({ success: true, invitation: payload });
+    } catch (err: any) {
+      console.error('Error creating invitation in Firestore:', err);
+      res.status(500).json({ success: false, error: 'Failed to create invitation in database.' });
+    }
+  });
+
+  // 7. Owner Delete / Revoke Invitation
+  app.delete('/api/owner/invitations/:token', requireOwnerAuth, async (req: Request, res: Response) => {
+    try {
+      const token = req.params.token;
+      if (!token) {
+        res.status(400).json({ success: false, error: 'Token required.' });
+        return;
+      }
+      await deleteDoc(doc(db, 'invitations', token));
+      res.json({ success: true });
+    } catch (err: any) {
+      console.error('Error deleting invitation from Firestore:', err);
+      res.status(500).json({ success: false, error: 'Failed to delete invitation.' });
+    }
+  });
+
+  // Handler for one-time invitation links
+  // Opens normally the FIRST time, then immediately and permanently becomes invalid (404)
+  const handleInvitationRequest = async (
+    req: Request,
+    res: Response,
+    next: NextFunction,
+    viteInstance?: any
+  ) => {
+    const rawToken = (req.params.token || (req.query.token as string))?.trim();
+    if (!rawToken) {
+      return sendReal404(res);
+    }
+
+    const userAgent = req.headers['user-agent'] || '';
+
+    // If chat app preview crawler, return minimal meta tags without consuming the token
+    if (isLinkPreviewBot(userAgent)) {
+      try {
+        const previewSnap = await getDoc(doc(db, 'invitations', rawToken));
+        if (!previewSnap.exists() || previewSnap.data()?.used) {
+          return sendReal404(res);
+        }
+        return res.status(200).send(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Immediate — Trading Invitation</title>
+  <meta property="og:title" content="Immediate — Trading Platform" />
+  <meta property="og:description" content="Access the Immediate trading platform." />
+</head>
+<body></body>
+</html>`);
+      } catch {
+        return sendReal404(res);
+      }
+    }
+
+    // Real human browser request: execute atomic Firestore transaction
+    let claimSuccess = false;
+    const inviteRef = doc(db, 'invitations', rawToken);
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const inviteSnap = await transaction.get(inviteRef);
+        if (!inviteSnap.exists()) {
+          throw new Error('TOKEN_NOT_FOUND');
+        }
+        const data = inviteSnap.data();
+        if (data.used || data.status === 'used' || data.status === 'revoked') {
+          throw new Error('TOKEN_ALREADY_USED');
+        }
+
+        // Atomically mark the token as used inside the transaction!
+        transaction.update(inviteRef, {
+          used: true,
+          status: 'used',
+          usedAt: new Date().toISOString(),
+          usedByIp: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || ''),
+          usedUserAgent: userAgent,
+        });
+      });
+
+      claimSuccess = true;
+    } catch {
+      claimSuccess = false;
+    }
+
+    if (!claimSuccess) {
+      // Return genuine HTTP 404 Not Found response
+      return sendReal404(res);
+    }
+
+    // First time successful opening: serve the existing website!
+    try {
+      if (viteInstance) {
+        let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
+        template = await viteInstance.transformIndexHtml(req.originalUrl, template);
+        return res.status(200).set({
+          'Content-Type': 'text/html',
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        }).end(template);
+      } else {
+        return res.status(200).set({
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          Pragma: 'no-cache',
+          Expires: '0',
+        }).sendFile(path.join(__dirname, 'dist', 'index.html'));
+      }
+    } catch (e) {
+      next(e);
+    }
+  };
+
   // Mount Vite in development or serve static in production
   if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: 'spa',
+      appType: 'custom',
     });
+
+    // One-time invitation route in dev
+    app.get(
+      ['/invite/:token', '/join/:token', '/i/:token', '/invite', '/join', '/i'],
+      (req: Request, res: Response, next: NextFunction) => handleInvitationRequest(req, res, next, vite)
+    );
+
     app.use(vite.middlewares);
+
+    // Main website SPA handler
     app.use('*', async (req: Request, res: Response, next: NextFunction) => {
       if (req.originalUrl.startsWith('/api')) {
         return next();
@@ -223,6 +439,12 @@ async function startServer() {
       }
     });
   } else {
+    // One-time invitation route in production
+    app.get(
+      ['/invite/:token', '/join/:token', '/i/:token', '/invite', '/join', '/i'],
+      (req: Request, res: Response, next: NextFunction) => handleInvitationRequest(req, res, next)
+    );
+
     app.use(express.static(path.join(__dirname, 'dist')));
     app.get('*', (_req: Request, res: Response) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));

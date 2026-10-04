@@ -221,10 +221,9 @@ export function LandingPage({ onLogin, onStartTrading }: LandingPageProps) {
               <div className="lp-disc-icon">
                 <ShieldCheck size={24} />
               </div>
-              <h3>Fully Regulated</h3>
+              <h3>Secure &amp; Encrypted</h3>
               <p>
-                Licensed and regulated to provide you with a secure and transparent trading
-                environment.
+                Advanced institutional encryption and segregated client funds ensuring complete security.
               </p>
             </div>
             <div className="lp-disc-card">

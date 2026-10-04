@@ -13,7 +13,6 @@ import {
   LogOut,
   HardDrive,
 } from 'lucide-react';
-import { LicenseModal } from './LicenseModal';
 import { PasswordModal } from './PasswordModal';
 import { ProfileDetailsModal } from './ProfileDetailsModal';
 import { GoogleDriveModal } from './GoogleDriveModal';
@@ -38,7 +37,6 @@ export function ProfileDropdown({
 }: ProfileDropdownProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [licenseOpen, setLicenseOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [driveOpen, setDriveOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -153,17 +151,6 @@ export function ProfileDropdown({
                 type="button"
                 className="pd-link"
                 onClick={() => {
-                  setDropdownOpen(false);
-                  setLicenseOpen(true);
-                }}
-              >
-                <Shield size={15} /> License <ArrowRight size={14} />
-              </button>
-
-              <button
-                type="button"
-                className="pd-link"
-                onClick={() => {
                   alert('Customer support is available 24/7 at support@immediate.com');
                 }}
               >
@@ -194,7 +181,6 @@ export function ProfileDropdown({
         user={currentUser || null}
         onSwitchAccountType={onSwitchAccountType}
       />
-      <LicenseModal open={licenseOpen} onClose={() => setLicenseOpen(false)} />
       <PasswordModal
         open={passwordOpen}
         onClose={() => setPasswordOpen(false)}

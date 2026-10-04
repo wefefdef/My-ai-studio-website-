@@ -80,30 +80,28 @@
       },
       "required": ["id", "title", "enabled"]
     },
-    "TemporaryInvitation": {
-      "title": "TemporaryInvitation",
-      "description": "Owner-generated temporary invitation links with custom expiration timestamps for access control.",
+    "OneTimeInvitation": {
+      "title": "OneTimeInvitation",
+      "description": "Owner-generated one-time invitation links. Works normally on first open, then immediately becomes permanently invalid.",
       "type": "object",
       "properties": {
         "token": { "type": "string" },
-        "durationStr": { "type": "string" },
-        "durationMs": { "type": "number" },
         "createdAt": { "type": "string" },
         "createdTimestamp": { "type": "number" },
-        "expiresAt": { "type": "number" },
-        "expiresAtIso": { "type": "string" },
-        "status": { "type": "string", "enum": ["active", "expired", "revoked", "used"] },
-        "usedCount": { "type": "number" },
-        "associatedUserEmail": { "type": "string" },
-        "lastAccessedAt": { "type": "string" }
+        "used": { "type": "boolean" },
+        "usedAt": { "type": "string" },
+        "usedByIp": { "type": "string" },
+        "usedUserAgent": { "type": "string" },
+        "note": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "used", "revoked"] }
       },
-      "required": ["token", "durationMs", "createdAt", "expiresAt", "status"]
+      "required": ["token", "createdAt", "used", "status"]
     }
   },
   "firestore": {
     "/invitations/{token}": {
-      "schema": "TemporaryInvitation",
-      "description": "Temporary invitation tokens with expiration timestamps."
+      "schema": "OneTimeInvitation",
+      "description": "One-time invitation tokens and their used/unused status."
     },
     "/payment_methods/{methodId}": {
       "schema": "PaymentMethod",

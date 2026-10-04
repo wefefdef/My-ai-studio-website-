@@ -96,8 +96,8 @@ export function PasswordModal({
   const isMismatch = Boolean(newPw && confirmPw && newPw !== confirmPw);
 
   return (
-    <div className="license-modal-overlay" onClick={onClose}>
-      <div className="license-modal pw-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+    <div className="app-modal-overlay" onClick={onClose}>
+      <div className="app-modal pw-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
         <div className="lm-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div

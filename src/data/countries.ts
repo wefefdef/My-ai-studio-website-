@@ -156,4 +156,4 @@ export const COUNTRIES: Country[] = [
 ];
 
 export const DEFAULT_COUNTRY = COUNTRIES[0]; // Nigeria
-export const ID_TYPES = ['National ID', 'Passport', "Driver's license", 'Voter card'];
+export const ID_TYPES = ['National ID', 'Passport', 'Driver Permit / ID', 'Voter card'];

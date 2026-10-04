@@ -254,3 +254,38 @@
   letter-spacing: -1px !important;
   font-feature-settings: 'tnum' 1;
 }
+
+/* Application Modal Overlay & Dialog */
+.app-modal-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  animation: fadeIn 0.2s ease-out;
+  backdrop-filter: blur(4px);
+}
+
+.app-modal {
+  background: var(--card, #ffffff);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  animation: scaleIn 0.25s ease-out;
+  border: 1px solid var(--border);
+}
+
+[data-theme='dark'] .app-modal {
+  background: var(--card, #1a1d28);
+  border-color: var(--border, #2a2e3a);
+}
+

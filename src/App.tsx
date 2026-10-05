@@ -118,6 +118,15 @@ export default function App() {
       return;
     }
 
+    // Check if the server explicitly authorized this request as the valid first open
+    const serverAllowedToken = typeof window !== 'undefined' ? (window as any).__INVITE_TOKEN_ALLOWED__ : null;
+    if (serverAllowedToken && serverAllowedToken === token) {
+      // Valid first opening! Clean up the URL in history so the one-time link is not in the address bar
+      window.history.replaceState({ view: 'landing', stackIndex: 0 }, '', '/');
+      setIsCheckingInvite(false);
+      return;
+    }
+
     const validToken = token;
     async function checkTokenInFirebase() {
       try {

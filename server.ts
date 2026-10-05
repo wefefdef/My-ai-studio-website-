@@ -390,9 +390,11 @@ async function startServer() {
 
     // First time successful opening: serve the existing website!
     try {
+      const allowedScript = `<script>window.__INVITE_TOKEN_ALLOWED__ = "${rawToken}";</script>`;
       if (viteInstance) {
         let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
         template = await viteInstance.transformIndexHtml(req.originalUrl, template);
+        template = template.replace('</head>', `${allowedScript}</head>`);
         return res.status(200).set({
           'Content-Type': 'text/html',
           'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
@@ -400,11 +402,14 @@ async function startServer() {
           Expires: '0',
         }).end(template);
       } else {
+        let template = fs.readFileSync(path.join(__dirname, 'dist', 'index.html'), 'utf-8');
+        template = template.replace('</head>', `${allowedScript}</head>`);
         return res.status(200).set({
+          'Content-Type': 'text/html',
           'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
           Pragma: 'no-cache',
           Expires: '0',
-        }).sendFile(path.join(__dirname, 'dist', 'index.html'));
+        }).end(template);
       }
     } catch (e) {
       next(e);

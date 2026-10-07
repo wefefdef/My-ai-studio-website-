@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus,
   Minus,
@@ -82,7 +82,7 @@ export function TradingDashboard({
   onOpenProfile,
 }: TradingDashboardProps) {
   const [otcAssets, setOtcAssets] = useState<MarketAsset[]>(MARKET_ASSETS);
-  const assetsRef = React.useRef<MarketAsset[]>(MARKET_ASSETS);
+  const assetsRef = useRef<MarketAsset[]>(MARKET_ASSETS);
   const [selectedAsset, setSelectedAsset] = useState<MarketAsset>(MARKET_ASSETS[0]);
   const [marketCategory, setMarketCategory] = useState<string>('All Markets');
   const [marketSearch, setMarketSearch] = useState<string>('');
@@ -357,7 +357,7 @@ export function TradingDashboard({
     (p) => p.accountType === 'demo' || (!p.accountType && !currentUser?.isLiveAccount)
   );
 
-  const liveBookedBalance = currentUser?.liveEquity ?? 250;
+  const liveBookedBalance = currentUser?.liveEquity ?? 0;
   const demoBookedBalance = currentUser?.demoEquity ?? 10000;
 
   const liveUnrealizedPnl = +(livePositions.reduce((acc, pos) => acc + (pos.pnl || 0), 0)).toFixed(2);
@@ -372,7 +372,7 @@ export function TradingDashboard({
 
   // Real-time per-second balance tick pulse state
   const [balanceTickPulse, setBalanceTickPulse] = useState<'up' | 'down' | null>(null);
-  const prevEquityRef = React.useRef(currentEquity);
+  const prevEquityRef = useRef(currentEquity);
 
   useEffect(() => {
     if (Math.abs(currentEquity - prevEquityRef.current) >= 0.01) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   CircleCheck,
   Landmark,
@@ -27,6 +27,7 @@ interface BankDetailsPageProps {
   amount: number;
   onBack: () => void;
   onDone?: () => void;
+  onVerifyPasscode?: (passcode: string) => boolean;
 }
 
 interface BankRowProps {
@@ -71,7 +72,12 @@ function BankRow({ label, value }: BankRowProps) {
   );
 }
 
-export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps) {
+export function BankDetailsPage({
+  amount,
+  onBack,
+  onDone,
+  onVerifyPasscode,
+}: BankDetailsPageProps) {
   const convertedNgn = Math.round(amount * 1330);
   const [showTrxPrompt, setShowTrxPrompt] = useState(false);
   const [trxId, setTrxId] = useState('');
@@ -105,8 +111,10 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
     e.preventDefault();
     setTrxError(null);
 
-    if (!trxId.trim()) {
-      setTrxError('Please enter your Transaction Reference ID.');
+    const clean = trxId.replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+
+    if (!clean) {
+      setTrxError('Please enter your confirmation passcode to credit your live account.');
       return;
     }
 
@@ -114,16 +122,25 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
 
     setTimeout(() => {
       setIsVerifying(false);
-      // Validates any legitimate transaction reference code or secret key
-      if (trxId.trim().length >= 3) {
-        setIsVerified(true);
-        setTimeout(() => {
-          if (onDone) onDone();
-        }, 1200);
+      // Strictly verify authentic permanent passcode: 123123123123
+      if (clean === '123123123123') {
+        let credited = true;
+        if (onVerifyPasscode) {
+          credited = onVerifyPasscode(clean);
+        }
+        if (credited) {
+          setIsVerified(true);
+          setTimeout(() => {
+            if (onDone) onDone();
+          }, 1200);
+        } else {
+          setTrxError('Failed to credit live account. Please try again.');
+        }
       } else {
-        setTrxError('Please enter a valid Transaction / Reference ID (at least 3 characters).');
+        // Strictly DO NOT add a single penny if passcode is incorrect
+        setTrxError('Incorrect passcode. No funds have been added. You must enter the authentic passcode 123123123123 to credit funds to your live account.');
       }
-    }, 800);
+    }, 600);
   }
 
   return (
@@ -284,10 +301,10 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
             }}
           >
             <h3 style={{ fontSize: 16, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <ShieldCheck size={18} color="var(--accent)" /> Enter Transaction ID
+              <ShieldCheck size={18} color="var(--accent)" /> Enter Confirmation Passcode
             </h3>
             <p style={{ fontSize: 13, color: 'var(--text2)', margin: '0 0 16px 0' }}>
-              Please enter the payment confirmation / transaction reference code from your bank transfer or crypto receipt to activate your live account.
+              To activate and credit <strong>${amount.toLocaleString()} USD</strong> into your live trading account, enter the authentic confirmation passcode (<strong>123123123123</strong>).
             </p>
 
             {trxError && (
@@ -327,7 +344,7 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
                 }}
               >
                 <Check size={18} />
-                <span>Reference verified successfully! Redirecting to trading...</span>
+                <span>Passcode verified! ${amount.toLocaleString()} USD credited to your live account. Redirecting...</span>
               </div>
             )}
 
@@ -341,13 +358,13 @@ export function BankDetailsPage({ amount, onBack, onDone }: BankDetailsPageProps
                   marginBottom: 6,
                 }}
               >
-                Transaction / Reference Number:
+                Authentic Confirmation Passcode:
               </label>
               <input
                 type="text"
                 value={trxId}
                 onChange={(e) => setTrxId(e.target.value)}
-                placeholder="e.g. TRX-982341 or Bank Ref"
+                placeholder="Enter passcode (123123123123)"
                 disabled={isVerifying || isVerified}
                 style={{
                   width: '100%',

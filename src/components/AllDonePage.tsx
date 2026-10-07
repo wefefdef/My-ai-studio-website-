@@ -1,4 +1,3 @@
-import React from 'react';
 import { CircleCheck, ArrowRight } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';

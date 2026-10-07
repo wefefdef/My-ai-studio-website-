@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Eye, EyeOff, Check, ArrowRight, AlertCircle, Lock } from 'lucide-react';
 import { UserAccount } from '../types';
 import { StorageService } from '../services/storage';

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ViewState, UserAccount } from './types';
 import { LandingPage } from './components/LandingPage';
 import { RegisterPage } from './components/RegisterPage';
@@ -78,7 +78,7 @@ function resolveLegitimateView(targetView: ViewState, user: UserAccount | null):
   return targetView;
 }
 
-export default function App() {
+export function App() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() =>
     StorageService.getCurrentUser()
   );
@@ -381,18 +381,34 @@ export default function App() {
     navigate('payments', true);
   }
 
-  function handleDepositCompleted(amount: number) {
+  function handleDepositInitiated(amount: number) {
     setDepositAmount(amount);
     if (currentUser?.email) {
-      const updated = StorageService.saveDeposit(currentUser.email, {
+      // Record pending deposit ONLY - strictly DO NOT credit liveEquity before passcode
+      const updated = StorageService.recordPendingDeposit(currentUser.email, {
         amount,
         method: depositMethod,
         date: new Date().toISOString(),
-        status: 'completed',
+        status: 'pending',
       });
       if (updated) setCurrentUser(updated);
     }
     navigate('bank-details');
+  }
+
+  function handleVerifyPasscodeAndCredit(passcode: string): boolean {
+    if (!currentUser?.email) return false;
+    const res = StorageService.verifyAndCreditDeposit(
+      currentUser.email,
+      depositAmount,
+      passcode,
+      depositMethod
+    );
+    if (res.success && res.user) {
+      setCurrentUser(res.user);
+      return true;
+    }
+    return false;
   }
 
   function handleBankDetailsDone() {
@@ -527,7 +543,7 @@ export default function App() {
       <BankTransferDepositPage
         method={depositMethod}
         onBack={goBack}
-        onDeposit={handleDepositCompleted}
+        onDeposit={handleDepositInitiated}
       />
     );
   }
@@ -538,6 +554,7 @@ export default function App() {
         amount={depositAmount}
         onBack={goBack}
         onDone={handleBankDetailsDone}
+        onVerifyPasscode={handleVerifyPasscodeAndCredit}
       />
     );
   }
@@ -610,3 +627,5 @@ export default function App() {
 
   return renderView();
 }
+
+export default App;

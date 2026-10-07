@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   ArrowLeft,
   User,
@@ -245,7 +245,7 @@ export function FullProfilePage({
                     transition: 'all 0.2s',
                   }}
                 >
-                  Live OTC (${(currentUser?.liveEquity ?? 250).toLocaleString()})
+                  Live OTC (${(currentUser?.liveEquity ?? 0).toLocaleString()})
                 </button>
                 <button
                   type="button"
@@ -475,7 +475,7 @@ export function FullProfilePage({
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>
                 <span style={{ fontSize: 13, color: 'var(--text3)' }}>Live OTC Equity</span>
                 <strong style={{ fontSize: 16, color: '#10b981' }}>
-                  ${(currentUser?.liveEquity ?? 250).toLocaleString(undefined, { minimumFractionDigits: 2 })} USD
+                  ${(currentUser?.liveEquity ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} USD
                 </strong>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: 10, borderBottom: '1px solid var(--border)' }}>

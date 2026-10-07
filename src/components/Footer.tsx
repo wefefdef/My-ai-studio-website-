@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { BrandMark } from './BrandMark';
 import { OneTimeInviteModal } from './OneTimeInviteModal';
 

@@ -82,6 +82,7 @@ export interface DepositRecord {
   method: string;
   date: string;
   status: 'completed' | 'pending';
+  reference?: string;
 }
 
 export interface TradePosition {

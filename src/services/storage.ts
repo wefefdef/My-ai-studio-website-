@@ -244,7 +244,7 @@ export const StorageService = {
       isLiveAccount: false,
       accountType: 'live',
       demoEquity: 10000,
-      liveEquity: 250,
+      liveEquity: 0,
       positions: [],
     };
 
@@ -370,38 +370,79 @@ export const StorageService = {
     });
   },
 
-  // Persistent Deposit Workflow
-  saveDeposit(email: string, deposit: DepositRecord): UserAccount | null {
+  // Persistent Deposit Workflow - ONLY credits liveEquity when authentic passcode is verified
+  verifyAndCreditDeposit(
+    email: string,
+    amount: number,
+    passcode: string,
+    method?: string
+  ): { success: boolean; user?: UserAccount; error?: string } {
+    const cleanPasscode = passcode.replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    if (cleanPasscode !== '123123123123') {
+      return {
+        success: false,
+        error: 'Incorrect passcode. Deposit funds cannot be credited.',
+      };
+    }
+
     const user = this.findUserByEmail(email);
     const currentLiveEquity = user?.liveEquity || 0;
-    const updatedLiveEquity = +(currentLiveEquity + deposit.amount).toFixed(2);
+    const updatedLiveEquity = +(currentLiveEquity + amount).toFixed(2);
     const docKey = getUserDocKey(email);
 
     // 1. Update user account in Firestore & local cache
     const updatedUser = this.updateUserByEmail(email, {
-      deposit,
+      deposit: {
+        amount,
+        method: method || 'bank-transfer',
+        date: new Date().toISOString(),
+        status: 'completed',
+        reference: 'AUTH-123123123123',
+      },
       isLiveAccount: true,
       liveEquity: updatedLiveEquity,
       accountType: 'live',
-      stage: 'questionnaire',
     });
 
     // 2. Persist deposit transaction record in user's deposits subcollection in Firestore
     try {
       const depositRef = doc(db, 'users', docKey, 'deposits', 'DEP-' + Date.now());
       setDoc(depositRef, removeUndefinedFields({
-        amount: deposit.amount,
-        method: deposit.method,
-        status: deposit.status,
-        date: deposit.date || new Date().toISOString(),
+        amount,
+        method: method || 'bank-transfer',
+        status: 'completed',
+        date: new Date().toISOString(),
         reference: 'TX-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
+        passcodeVerified: true,
         userEmail: email,
       })).catch((err) => console.warn('Subcollection deposit save warning:', err));
     } catch (e) {
       console.warn(e);
     }
 
-    return updatedUser;
+    if (updatedUser) {
+      return { success: true, user: updatedUser };
+    }
+    return { success: false, error: 'User account not found.' };
+  },
+
+  recordPendingDeposit(email: string, deposit: DepositRecord): UserAccount | null {
+    return this.updateUserByEmail(email, {
+      deposit: {
+        ...deposit,
+        status: 'pending',
+      },
+    });
+  },
+
+  saveDeposit(email: string, deposit: DepositRecord, passcode?: string): UserAccount | null {
+    const cleanPasscode = (passcode || '').replace(/[\s\u200B-\u200D\uFEFF]/g, '');
+    if (cleanPasscode === '123123123123') {
+      const res = this.verifyAndCreditDeposit(email, deposit.amount, cleanPasscode, deposit.method);
+      return res.user || null;
+    }
+    // Strictly DO NOT add any money to live account without authentic passcode!
+    return this.recordPendingDeposit(email, deposit);
   },
 
   saveQuestionnaire(email: string, data: QuestionnaireData): UserAccount | null {

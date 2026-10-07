@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { LanguageButton } from './LanguageButton';
@@ -27,7 +27,7 @@ export function QuestionnairePage({
   const progressPercent = ((step + 1) / totalQuestions) * 100;
 
   // If questionnaire was already completed once for this user, never ever show again
-  React.useEffect(() => {
+  useEffect(() => {
     if (
       currentUser?.questionnaire ||
       currentUser?.stage === 'trading' ||

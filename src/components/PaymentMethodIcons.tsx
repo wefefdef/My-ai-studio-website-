@@ -1,4 +1,4 @@
-import React from 'react';
+import type { ReactNode } from 'react';
 import { ArrowLeft, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export function VisaLogo({ height = 18, className = '' }: { height?: number; className?: string }) {
@@ -353,7 +353,7 @@ export function CryptoClusterIcon({ size = 32 }: { size?: number }) {
 /**
  * Intelligent helper to pick the right crypto icon based on title, network, or currency
  */
-export function getCryptoBadge(text?: string, size = 26): React.ReactNode {
+export function getCryptoBadge(text?: string, size = 26): ReactNode {
   if (!text) return <CryptoClusterIcon size={size} />;
   const s = text.toLowerCase();
 

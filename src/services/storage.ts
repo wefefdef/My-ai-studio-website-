@@ -397,7 +397,7 @@ export const StorageService = {
         method: method || 'bank-transfer',
         date: new Date().toISOString(),
         status: 'completed',
-        reference: 'AUTH-123123123123',
+        reference: 'AUTH-' + Math.random().toString(36).substring(2, 10).toUpperCase(),
       },
       isLiveAccount: true,
       liveEquity: updatedLiveEquity,

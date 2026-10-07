@@ -178,7 +178,7 @@ async function startServer() {
       });
       res.json({ success: true, token });
     } else {
-      res.status(401).json({ success: false, error: 'Incorrect passcode. Please enter 123123123123' });
+      res.status(401).json({ success: false, error: 'Incorrect passcode. Access denied.' });
     }
   });
 

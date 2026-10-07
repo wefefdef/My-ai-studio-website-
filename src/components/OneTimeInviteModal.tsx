@@ -49,7 +49,7 @@ export function OneTimeInviteModal({ isOpen, onClose }: OneTimeInviteModalProps)
     }
 
     if (clean !== '123123123123') {
-      setAuthError('Incorrect passcode. Please enter 123123123123');
+      setAuthError('Incorrect passcode. Access denied.');
       return;
     }
 
@@ -221,7 +221,7 @@ export function OneTimeInviteModal({ isOpen, onClose }: OneTimeInviteModalProps)
                   type={showPasscode ? 'text' : 'password'}
                   value={passcode}
                   onChange={(e) => setPasscode(e.target.value)}
-                  placeholder="Enter passcode (123123123123)"
+                  placeholder="Enter passcode"
                   autoFocus
                   required
                   style={{

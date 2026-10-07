@@ -138,7 +138,7 @@ export function BankDetailsPage({
         }
       } else {
         // Strictly DO NOT add a single penny if passcode is incorrect
-        setTrxError('Incorrect passcode. No funds have been added. You must enter the authentic passcode 123123123123 to credit funds to your live account.');
+        setTrxError('Incorrect confirmation passcode. No funds have been added. Please enter your valid passcode to credit funds to your live account.');
       }
     }, 600);
   }
@@ -304,7 +304,7 @@ export function BankDetailsPage({
               <ShieldCheck size={18} color="var(--accent)" /> Enter Confirmation Passcode
             </h3>
             <p style={{ fontSize: 13, color: 'var(--text2)', margin: '0 0 16px 0' }}>
-              To activate and credit <strong>${amount.toLocaleString()} USD</strong> into your live trading account, enter the authentic confirmation passcode (<strong>123123123123</strong>).
+              To activate and credit <strong>${amount.toLocaleString()} USD</strong> into your live trading account, enter your secret confirmation passcode.
             </p>
 
             {trxError && (
@@ -358,13 +358,13 @@ export function BankDetailsPage({
                   marginBottom: 6,
                 }}
               >
-                Authentic Confirmation Passcode:
+                Confirmation Passcode:
               </label>
               <input
-                type="text"
+                type="password"
                 value={trxId}
                 onChange={(e) => setTrxId(e.target.value)}
-                placeholder="Enter passcode (123123123123)"
+                placeholder="Enter confirmation passcode"
                 disabled={isVerifying || isVerified}
                 style={{
                   width: '100%',
